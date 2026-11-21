@@ -238,6 +238,8 @@ private struct GazeSection: View {
 
                 HStack {
                     Button("Calibrer…") { appState.startCalibration() }
+                    Button("Entraînement…") { appState.startTraining() }
+                        .disabled(appState.calibration == nil)
                     if appState.calibration != nil {
                         Button("Effacer la calibration", role: .destructive) { appState.deleteCalibration() }
                     }

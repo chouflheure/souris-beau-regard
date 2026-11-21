@@ -206,6 +206,33 @@ struct CalibrationModel: Codable, Sendable, Equatable {
         return .accepted
     }
 
+    /// Ajoute les mesures d'un exercice d'entraînement (un groupe par cible cliquée).
+    mutating func addTraining(_ groups: [[CalibrationSample]], maxSamples: Int = 3000, eventWindow: Int = 5) {
+        let nonEmpty = groups.filter { !$0.isEmpty }
+        var samples = (implicitSamples ?? []) + nonEmpty.flatMap { $0 }
+        if samples.count > maxSamples { samples.removeFirst(samples.count - maxSamples) }
+        implicitSamples = samples
+        implicitEventCount = (implicitEventCount ?? 0) + nonEmpty.count
+        recentEvents = Array(nonEmpty.suffix(eventWindow))
+    }
+
+    /// Refait le choix du modèle et de λ (`nil` : automatique) sur toutes les mesures, réapprend,
+    /// recalcule la validation (honnête : modèle des seuls points de calibration) et le décalage.
+    mutating func relearn(kind requestedKind: GazeModelKind?, lambda requestedLambda: Double?) throws {
+        let choice = Self.choose(trainingSamples, kind: requestedKind, lambda: requestedLambda)
+        regression = try Self.fitRegression(trainingSamples, kind: choice.kind, lambda: choice.lambda)
+        kind = choice.kind
+        if requestedKind == nil { autoKind = choice.kind }
+        if requestedLambda == nil { autoLambda = choice.lambda }
+        crossValidationError = choice.error.isFinite
+            ? choice.error
+            : ModelSelection.crossValidationError(trainingSamples, kind: choice.kind, lambda: choice.lambda)
+        if let calibrationOnly = try? Self.fitRegression(calibrationSamples, kind: choice.kind, lambda: choice.lambda) {
+            validation = Self.validate(validationSamples, kind: choice.kind, with: calibrationOnly)
+        }
+        updateOffsetFromEvents()
+    }
+
     /// Réapprend le modèle avec les mesures des clics (même modèle et même λ, sans validation croisée,
     /// trop coûteuse avec des centaines de points), puis recalcule le décalage.
     mutating func refitWithImplicitSamples() throws {

@@ -5,6 +5,14 @@ import SwiftUI
 final class CalibrationWindow: NSWindow {
     var onKey: (@MainActor (NSEvent) -> Bool)?
     var onCancel: (@MainActor () -> Void)?
+    /// Clic de souris, coordonnées de la vue (origine haut-gauche).
+    var onMouseDown: (@MainActor (CGPoint) -> Void)?
+
+    override func mouseDown(with event: NSEvent) {
+        guard let onMouseDown else { return super.mouseDown(with: event) }
+        let p = event.locationInWindow
+        onMouseDown(CGPoint(x: p.x, y: frame.height - p.y))
+    }
 
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }

@@ -19,6 +19,7 @@ final class AppState {
     private let windows = WindowPresenter()
     private let overlay = OverlayWindowController()
     private let calibrationWindow = CalibrationWindowController()
+    private let trainingWindow = TrainingWindowController()
     private let store = CalibrationStore()
 
     // Derniers résultats de la caméra.
@@ -33,6 +34,7 @@ final class AppState {
     // Regard.
     private(set) var calibration: CalibrationModel?
     private(set) var calibrationSession: CalibrationSession?
+    private(set) var trainingSession: TrainingSession?
     private(set) var gaze: GazeEstimate?
     /// Pourquoi le regard n'est pas suivi en ce moment (affiché dans le débogage), ou `nil`.
     private(set) var gazeLossReason: String?
@@ -190,7 +192,7 @@ final class AppState {
 
     /// Le regard est suivi et affiché : calibration présente, suivi activé, pas de calibration en cours.
     var isTrackingActive: Bool {
-        settings.trackingEnabled && calibration != nil && calibrationSession == nil
+        settings.trackingEnabled && calibration != nil && calibrationSession == nil && trainingSession == nil
     }
 
     /// Suivi activé ou point de regard affiché / masqué (depuis le menu ou les réglages).
@@ -309,6 +311,73 @@ final class AppState {
     /// Nombre de clics retenus entre deux réapprentissages du modèle.
     private static let refitEveryClicks = 20
 
+    // MARK: - Entraînement
+
+    /// Exercice : cliquer à la souris des cibles en les regardant ; les mesures enrichissent le modèle.
+    func startTraining() {
+        guard trainingSession == nil, calibrationSession == nil, let calibration,
+              let screen = ScreenGeometry.screen(matchingQuartzFrame: calibration.screenFrame) else { return }
+        let session = TrainingSession(screenFrame: ScreenGeometry.quartzFrame(of: screen),
+                                      count: settings.trainingTargetCount,
+                                      lookBack: settings.learningLookBackStart...settings.learningLookBackEnd)
+        session.featuresProvider = { [weak self] window in
+            self?.recentFeatures.filter { window.contains($0.time) }.map { $0.features } ?? []
+        }
+        session.predictor = { [weak self] features in
+            self?.calibration?.predict(features) ?? .zero
+        }
+        session.onFinish = { [weak self] groups, before in
+            self?.finishTraining(groups, beforeError: before)
+        }
+        session.onClose = { [weak self] in self?.closeTraining() }
+        trainingSession = session
+        overlay.hide()
+        updateCameraState()
+        trainingWindow.present(session, on: screen)
+    }
+
+    private func finishTraining(_ groups: [[CalibrationSample]]?, beforeError: Double?) {
+        guard let groups, let session = trainingSession else { return }   // annulé
+        guard !groups.isEmpty, var model = calibration else {
+            session.showFailure("Aucune cible mesurée : le visage était-il bien visible ?")
+            return
+        }
+        model.addTraining(groups, eventWindow: settings.learningEventWindow)
+        let snapshot = model
+        let kind = settings.modelChoice
+        let lambda: Double? = settings.lambdaAuto ? nil : settings.ridgeLambda
+        Task { [weak self] in
+            // Choix du modèle et de λ sur toutes les mesures : quelques centaines d'apprentissages,
+            // faits hors du fil principal.
+            let outcome = await Task.detached { () -> Result<CalibrationModel, any Error> in
+                var updated = snapshot
+                do {
+                    try updated.relearn(kind: kind, lambda: lambda)
+                    return .success(updated)
+                } catch {
+                    return .failure(error)
+                }
+            }.value
+            guard let self else { return }
+            switch outcome {
+            case .success(let updated):
+                self.calibration = updated
+                self.engine.reset()
+                self.saveCalibration(immediately: true)
+                session.showResult(after: updated.crossValidationError)
+            case .failure(let error):
+                session.showFailure(error.localizedDescription)
+            }
+        }
+    }
+
+    private func closeTraining() {
+        trainingWindow.close()
+        trainingSession = nil
+        updateCameraState()
+        updateOverlay()
+    }
+
     // MARK: - Calibration
 
     func startCalibration() {
@@ -400,7 +469,7 @@ final class AppState {
 
     /// La caméra tourne tant que quelqu'un en a besoin.
     private var cameraNeeded: Bool {
-        isDebugWindowOpen || calibrationSession != nil || isTrackingActive
+        isDebugWindowOpen || calibrationSession != nil || trainingSession != nil || isTrackingActive
     }
 
     private func updateCameraState() {
@@ -480,9 +549,7 @@ final class AppState {
         }
 
         refitIfNeeded()
-        guard isTrackingActive, let model = calibration else { return }
-        // Le panneau a pu être retiré par le système (changement d'écran, de bureau…).
-        if settings.showGazePoint, !overlay.isVisible { updateOverlay() }
+        guard let model = calibration else { return }
 
         // Clignement : les pupilles sont fausses sur ces images, on garde la dernière position.
         let openness = [face?.leftEye?.openness, face?.rightEye?.openness].compactMap { $0 }.min() ?? 0
@@ -491,17 +558,22 @@ final class AppState {
             (isBlink || !f.vector.allSatisfy(\.isFinite)) ? nil : f
         }
 
-        if isRecentering, let valid {
-            let elapsed = now - recenterStart
-            if Self.recenterWindow.contains(elapsed), GazeEngine.isFinite(model.predictUncorrected(valid)) {
-                recenterSamples.append(valid)
-            }
-        }
-
+        // Mesures de la dernière seconde (apprentissage par les clics et exercice d'entraînement).
         if let valid {
             recentFeatures.append((now, valid))
             if let first = recentFeatures.first, now - first.time > 1.0 {
                 recentFeatures.removeAll { now - $0.time > 1.0 }
+            }
+        }
+
+        guard isTrackingActive else { return }
+        // Le panneau a pu être retiré par le système (changement d'écran, de bureau…).
+        if settings.showGazePoint, !overlay.isVisible { updateOverlay() }
+
+        if isRecentering, let valid {
+            let elapsed = now - recenterStart
+            if Self.recenterWindow.contains(elapsed), GazeEngine.isFinite(model.predictUncorrected(valid)) {
+                recenterSamples.append(valid)
             }
         }
 

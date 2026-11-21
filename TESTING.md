@@ -192,3 +192,21 @@ Réglages utiles : rayon d'accroche (120 pt), délai avant changement (150 ms), 
 - [ ] La cible ne saute plus quand le regard tremble à côté d'elle.
 
 À rapporter : écart au dernier clic au début et après quelques minutes, nombre de clics ignorés.
+
+### Étape 3 ter — Exercice d'entraînement
+
+Menu ▸ **Entraînement (cliquer en regardant)…** (ou bouton dans le débogage). Nécessite une calibration.
+
+- [ ] Plein écran sombre, pointeur visible. Espace pour commencer.
+- [ ] 30 cibles orange apparaissent une à une, réparties sur tout l'écran. Regarder la cible, puis la cliquer
+      en continuant à la regarder. Un clic à côté (plus de 45 pt) est ignoré.
+- [ ] Après chaque clic : un point rouge montre où le modèle pensait que l'on regardait, avec l'écart en points.
+- [ ] En bas : progression et écart moyen. Se décaler un peu sur sa chaise de temps en temps pendant l'exercice.
+- [ ] À la fin : « Apprentissage… », puis l'écart moyen pendant l'exercice (ancien modèle) et l'erreur estimée
+      du nouveau modèle. Entrée ferme ; Échap annule à tout moment sans rien apprendre.
+- [ ] Après l'exercice, le cercle du regard est mieux placé. Refaire un exercice : l'écart moyen pendant
+      l'exercice doit baisser par rapport au premier.
+- [ ] Les mesures s'accumulent d'un exercice à l'autre et survivent à un redémarrage
+      (*Débogage ▸ Clics appris* : nombre de mesures).
+
+À rapporter : écart moyen du 1er et du 2e exercice, erreur estimée du nouveau modèle.

@@ -19,6 +19,8 @@ struct SettingsView: View {
             }
             Section("Apprentissage continu") {
                 Toggle("Apprendre de mes clics de souris", isOn: $settings.learnFromClicks)
+                Stepper("Entraînement : \(settings.trainingTargetCount) cibles",
+                        value: $settings.trainingTargetCount, in: 10...120, step: 10)
                 LabeledContent("Écart max. retenu (pt)") {
                     Slider(value: $settings.learningMaxError, in: 100...800)
                     Text(String(format: "%.0f", settings.learningMaxError)).monospacedDigit()

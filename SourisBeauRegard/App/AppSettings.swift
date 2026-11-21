@@ -27,6 +27,7 @@ final class AppSettings {
         static let targetingEnabled = "targeting.enabled"
         static let targetStickiness = "targeting.stickiness"
         static let learnFromClicks = "learning.fromClicks"
+        static let trainingTargetCount = "learning.trainingTargetCount"
         static let learningMaxError = "learning.maxError"
         static let learningEventWindow = "learning.eventWindow"
         static let snapRadius = "targeting.snapRadius"
@@ -102,6 +103,10 @@ final class AppSettings {
     /// Apprendre en continu des vrais clics de souris.
     var learnFromClicks: Bool {
         didSet { defaults.set(learnFromClicks, forKey: Key.learnFromClicks) }
+    }
+    /// Nombre de cibles d'un exercice d'entraînement.
+    var trainingTargetCount: Int {
+        didSet { defaults.set(trainingTargetCount, forKey: Key.trainingTargetCount) }
     }
     /// Au-delà de cet écart (points) entre le regard estimé et le clic, le clic est ignoré.
     var learningMaxError: Double {
@@ -227,6 +232,7 @@ final class AppSettings {
             Key.targetingEnabled: true,
             Key.targetStickiness: 40.0,
             Key.learnFromClicks: true,
+            Key.trainingTargetCount: 30,
             Key.learningMaxError: 300.0,
             Key.learningEventWindow: 5,
             Key.snapRadius: 120.0,
@@ -258,6 +264,7 @@ final class AppSettings {
         targetingEnabled = defaults.bool(forKey: Key.targetingEnabled)
         targetStickiness = defaults.double(forKey: Key.targetStickiness)
         learnFromClicks = defaults.bool(forKey: Key.learnFromClicks)
+        trainingTargetCount = min(max(defaults.integer(forKey: Key.trainingTargetCount), 10), 120)
         learningMaxError = defaults.double(forKey: Key.learningMaxError)
         learningEventWindow = min(max(defaults.integer(forKey: Key.learningEventWindow), 1), 30)
         snapRadius = defaults.double(forKey: Key.snapRadius)

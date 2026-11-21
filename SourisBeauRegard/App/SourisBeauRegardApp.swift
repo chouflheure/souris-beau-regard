@@ -54,6 +54,8 @@ struct MenuContent: View {
         Divider()
 
         Button("Calibrer…") { appState.startCalibration() }
+        Button("Entraînement (cliquer en regardant)…") { appState.startTraining() }
+            .disabled(appState.calibration == nil)
         Button(appState.recenterShortcutAvailable ? "Recentrer (\(GlobalHotKeys.recenter.label))" : "Recentrer") {
             appState.recenter()
         }
