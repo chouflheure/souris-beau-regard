@@ -24,6 +24,8 @@ final class OverlayModel {
     var recenterTarget: CGPoint?
     /// Cadre de la cible visée (coordonnées de la vue), surligné.
     var targetFrame: CGRect?
+    /// Message affiché en haut de l'écran (proposition de recaler…).
+    var banner: String?
     /// Dessiner le point de regard même quand une cible est surlignée.
     var showGazeWithTarget = true
 }
@@ -92,6 +94,10 @@ final class OverlayWindowController {
         }
     }
 
+    func showBanner(_ text: String?) {
+        if model.banner != text { model.banner = text }
+    }
+
     /// `frame` en coordonnées Quartz globales ; `nil` : pas de cible.
     func update(target frame: CGRect?, showGazeWithTarget: Bool) {
         model.targetFrame = frame.map { $0.offsetBy(dx: -screenFrameQuartz.minX, dy: -screenFrameQuartz.minY) }
@@ -110,6 +116,23 @@ private struct OverlayView: View {
     let model: OverlayModel
 
     var body: some View {
+        ZStack(alignment: .top) {
+            canvas
+            if let banner = model.banner {
+                Text(banner)
+                    .font(.headline)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 10)
+                    .background(Color.black.opacity(0.75), in: Capsule())
+                    .padding(.top, 48)
+            }
+        }
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
+    }
+
+    private var canvas: some View {
         Canvas { context, _ in
             if let t = model.recenterTarget {
                 let ring = Path(ellipseIn: CGRect(x: t.x - 20, y: t.y - 20, width: 40, height: 40))

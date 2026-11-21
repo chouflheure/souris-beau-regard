@@ -88,6 +88,59 @@ final class DarkCentroidTests: XCTestCase {
         XCTAssertGreaterThan(old.y, 13)
     }
 
+    /// Œil clair comme sur la photo : iris gris (110), pupille (40), reflet blanc en bas à gauche,
+    /// ombre de paupière (60) sur le haut de l'iris.
+    private func lightEye(center: CGPoint) -> [UInt8] {
+        let w = 60, h = 30
+        var g = [UInt8](repeating: 200, count: w * h)
+        func d(_ x: Int, _ y: Int) -> Double { hypot(Double(x) + 0.5 - center.x, Double(y) + 0.5 - center.y) }
+        for y in 0..<h { for x in 0..<w { if d(x, y) <= 7 { g[y * w + x] = 110 }; if d(x, y) <= 2 { g[y * w + x] = 40 } } }
+        let hx = Int(center.x) - 4, hy = 15
+        for y in hy..<(hy + 3) { for x in hx..<(hx + 3) { g[y * w + x] = 250 } }
+        let sy = Int(center.y) - 7
+        for y in sy..<(sy + 3) { for x in 0..<w where d(x, y) <= 7.5 { g[y * w + x] = 60 } }
+        return g
+    }
+
+    func testRobustIrisSearchResistsReflectionAndLidShadow() throws {
+        let contour = [CGPoint(x: 12, y: 16), CGPoint(x: 30, y: 10), CGPoint(x: 48, y: 16), CGPoint(x: 30, y: 22)]
+        for truth in [CGPoint(x: 30.5, y: 14.5), CGPoint(x: 36.5, y: 15.5)] {
+            let g = lightEye(center: truth)
+            let robust = try XCTUnwrap(DarkCentroid.locateIrisRobust(
+                gray: g, width: 60, height: 30, polygon: contour, boxSide: 9,
+                maskScaleX: ImagePupilLocator.maskScaleX, maskScaleY: ImagePupilLocator.maskScaleY, kernel: 5))
+            let plain = try XCTUnwrap(DarkCentroid.locateIris(
+                gray: g, width: 60, height: 30, polygon: contour, boxSide: 9,
+                maskScaleX: ImagePupilLocator.maskScaleX, maskScaleY: ImagePupilLocator.maskScaleY))
+            XCTAssertEqual(robust.x, truth.x, accuracy: 0.8, "\(truth)")
+            XCTAssertEqual(robust.y, truth.y, accuracy: 1.5, "\(truth)")
+            XCTAssertLessThan(hypot(robust.x - truth.x, robust.y - truth.y),
+                              hypot(plain.x - truth.x, plain.y - truth.y), "plus juste que sans filtre")
+        }
+    }
+
+    func testMorphologyRemovesSmallBrightAndThinDarkFeatures() {
+        let w = 20, h = 20
+        var g = [UInt8](repeating: 100, count: w * h)
+        g[10 * w + 10] = 255                                 // reflet d'un pixel
+        for x in 0..<w { g[3 * w + x] = 0 }                  // cil : ligne fine
+        let f = DarkCentroid.closeOpen(g, width: w, height: h, kernel: 3)
+        XCTAssertEqual(f[10 * w + 10], 100)
+        XCTAssertEqual(f[3 * w + 10], 100)
+    }
+
+    func testCircleCenterFromChords() throws {
+        // Cercle de centre (10, 12), rayon 6 ; seules les cordes du bas sont visibles (paupière en haut).
+        let chords = stride(from: 11.0, through: 17.0, by: 1.0).map { y -> DarkCentroid.Chord in
+            let half = (36 - (y - 12) * (y - 12)).squareRoot()
+            return DarkCentroid.Chord(y: y, left: 10 - half, right: 10 + half)
+        }
+        let c = try XCTUnwrap(DarkCentroid.circleCenter(from: chords))
+        XCTAssertEqual(c.x, 10, accuracy: 1e-9)
+        XCTAssertEqual(c.y, 12, accuracy: 1e-6)
+        XCTAssertNil(DarkCentroid.circleCenter(from: Array(chords.prefix(2))))
+    }
+
     func testRejectsInconsistentSize() {
         XCTAssertNil(DarkCentroid.locate(gray: [1, 2, 3], width: 2, height: 2, polygon: nil, darkFraction: 0.1))
     }

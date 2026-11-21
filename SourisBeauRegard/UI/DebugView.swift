@@ -220,6 +220,9 @@ private struct TargetingSection: View {
                     ValueRow("Cible", "aucune")
                 }
                 ValueRow("Éléments trouvés", "\(appState.targetCandidateCount)")
+                ValueRow("Touche de clic", appState.isClickSourceRunning
+                         ? "\(KeyCodes.name(for: appState.settings.clickKeyCode)) · \(appState.clicksSent) clic(s) envoyés"
+                         : (appState.clickSourceError ?? "inactive"))
                 ValueRow("Durée de recherche", appState.targetQueryDuration.map { String(format: "%.0f ms", $0 * 1000) } ?? "—")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -297,6 +300,7 @@ private struct GazeSection: View {
                 if let message = appState.recenterMessage {
                     Text(message).font(.callout).foregroundStyle(.secondary)
                 }
+                ValueRow("Déplacement de la tête", appState.headDriftScore.map { String(format: "%.0f %% du seuil", $0 * 100) } ?? "—")
                 ValueRow("Clics appris / ignorés", "\(appState.clicksAccepted) / \(appState.clicksRejected)"
                          + (appState.calibration?.implicitSamples.map { " · \($0.count) mesures" } ?? ""))
                 ValueRow("Écart au dernier clic", appState.lastClickError.map { String(format: "%.0f pt", $0) } ?? "—")

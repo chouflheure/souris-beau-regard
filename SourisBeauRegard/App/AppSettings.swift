@@ -8,6 +8,38 @@ import Observation
 final class AppSettings {
     private let defaults: UserDefaults
 
+    /// Proposer de recaler quand la tête s'est déplacée depuis la calibration ou le dernier recalage.
+    var suggestRecenter: Bool {
+        didSet { defaults.set(suggestRecenter, forKey: Key.suggestRecenter) }
+    }
+
+    /// Clic par une touche du clavier.
+    var clickEnabled: Bool {
+        didSet {
+            defaults.set(clickEnabled, forKey: Key.clickEnabled)
+            onGazeDisplayChange?()
+        }
+    }
+    /// Code de la touche de clic (61 = Option droite).
+    var clickKeyCode: Int64 {
+        didSet {
+            defaults.set(clickKeyCode, forKey: Key.clickKeyCode)
+            onGazeDisplayChange?()
+        }
+    }
+    /// Deux appuis plus rapprochés que ceci (s) : double-clic.
+    var doubleClickInterval: Double {
+        didSet { defaults.set(doubleClickInterval, forKey: Key.doubleClickInterval) }
+    }
+    /// Distance du regard pendant l'appui au-delà de laquelle on glisse-dépose (points).
+    var dragThreshold: Double {
+        didSet { defaults.set(dragThreshold, forKey: Key.dragThreshold) }
+    }
+    /// La cible retenue est celle de ce délai avant l'appui (s).
+    var clickLookBack: Double {
+        didSet { defaults.set(clickLookBack, forKey: Key.clickLookBack) }
+    }
+
     /// Caméra choisie (`nil` : automatique, la caméra intégrée).
     var cameraID: String? {
         didSet {
@@ -28,6 +60,12 @@ final class AppSettings {
         static let minFPS = "quality.minFPS"
         static let blinkRelativeThreshold = "gaze.blinkRelativeThreshold"
         static let cameraID = "camera.id"
+        static let suggestRecenter = "gaze.suggestRecenter"
+        static let clickEnabled = "click.enabled"
+        static let clickKeyCode = "click.keyCode"
+        static let doubleClickInterval = "click.doubleClickInterval"
+        static let dragThreshold = "click.dragThreshold"
+        static let clickLookBack = "click.lookBack"
         static let pupilLocator = "gaze.pupilLocator"
         static let irisFraction = "gaze.irisFraction"
         static let ridgeLambda = "gaze.ridgeLambda"
@@ -244,6 +282,12 @@ final class AppSettings {
             Key.minEyeOpenness: 0.15,
             Key.minFPS: 25.0,
             Key.blinkRelativeThreshold: 0.6,
+            Key.suggestRecenter: true,
+            Key.clickEnabled: true,
+            Key.clickKeyCode: Int(KeyCodes.rightOption),
+            Key.doubleClickInterval: 0.3,
+            Key.dragThreshold: 80.0,
+            Key.clickLookBack: 0.12,
             Key.pupilLocator: PupilLocatorKind.image.rawValue,
             Key.irisFraction: 0.3,
             Key.ridgeLambda: 10.0,
@@ -278,6 +322,12 @@ final class AppSettings {
         minFPS = defaults.double(forKey: Key.minFPS)
         blinkRelativeThreshold = defaults.double(forKey: Key.blinkRelativeThreshold)
         cameraID = defaults.string(forKey: Key.cameraID)
+        suggestRecenter = defaults.bool(forKey: Key.suggestRecenter)
+        clickEnabled = defaults.bool(forKey: Key.clickEnabled)
+        clickKeyCode = Int64(defaults.integer(forKey: Key.clickKeyCode))
+        doubleClickInterval = defaults.double(forKey: Key.doubleClickInterval)
+        dragThreshold = defaults.double(forKey: Key.dragThreshold)
+        clickLookBack = defaults.double(forKey: Key.clickLookBack)
         pupilLocator = PupilLocatorKind(rawValue: defaults.string(forKey: Key.pupilLocator) ?? "") ?? .image
         irisFraction = defaults.double(forKey: Key.irisFraction)
         ridgeLambda = defaults.double(forKey: Key.ridgeLambda)

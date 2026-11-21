@@ -43,7 +43,7 @@ enum PupilLocatorKind: String, Codable, CaseIterable, Identifiable, Sendable {
 
     /// Version de l'algorithme de `ImagePupilLocator` : une calibration faite avec une autre
     /// version mesurait autre chose et n'est plus valable.
-    static let imageAlgorithmVersion = 3
+    static let imageAlgorithmVersion = 4
 
     var label: String {
         switch self {

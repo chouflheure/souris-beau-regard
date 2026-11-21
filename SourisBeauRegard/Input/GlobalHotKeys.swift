@@ -17,6 +17,9 @@ final class GlobalHotKeys {
 
     static let recenter = Shortcut(keyCode: UInt32(kVK_ANSI_R),
                                    modifiers: UInt32(controlKey | optionKey), label: "⌃⌥R")
+    /// Arrêt d'urgence : coupe l'interception de la touche, relâche la souris, éteint la caméra.
+    static let emergencyStop = Shortcut(keyCode: UInt32(kVK_Escape),
+                                        modifiers: UInt32(controlKey | optionKey | cmdKey), label: "⌃⌥⌘Échap")
 
     private var actions: [UInt32: () -> Void] = [:]
     private var refs: [UInt32: EventHotKeyRef] = [:]

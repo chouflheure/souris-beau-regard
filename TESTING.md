@@ -296,3 +296,36 @@ et la stabilisation mettait ensuite 2 s à « oublier » ces mesures (remontée 
 - [ ] Débogage : aucun avertissement « Effets vidéo actifs » (sinon, les couper dans le Centre de contrôle).
 - [ ] Le surlignage passe plus vite d'un élément à un autre éloigné.
 - [ ] (Si un iPhone est disponible) le choisir comme caméra, recalibrer, comparer l'erreur et le bruit.
+
+### Pupille : reflets et ombre de paupière ; proposition de recalage
+
+- La recherche de l'iris efface d'abord les petits détails (filtre fermeture/ouverture : reflets blancs, cils, pupille),
+  puis centre l'iris sur ses bords gauche et droit, ligne par ligne (ajustement d'un cercle : marche même si la paupière
+  cache le haut de l'iris). Les mesures ont changé : **recalibrer** (l'ancienne calibration n'est plus chargée).
+- Si la tête s'est déplacée (≈ 3 cm de côté, ou 12 % plus près / plus loin) pendant plus de 1,5 s, ou si les derniers clics
+  montrent un écart qui grandit, un bandeau en haut de l'écran propose : « Vous avez bougé : ⌃⌥R pour recaler ».
+
+- [ ] Vue agrandie des yeux : la croix rose est au centre de l'iris, malgré le reflet blanc.
+- [ ] Se décaler sur sa chaise : le bandeau apparaît ; ⌃⌥R : il disparaît et le point est recalé.
+- [ ] Revenir à sa place sans recaler : le bandeau disparaît tout seul.
+- [ ] *Débogage ▸ Déplacement de la tête* : pourcentage du seuil, qui monte quand on bouge.
+
+## Étape 4 — Clic
+
+Prérequis : calibration faite, Accessibilité autorisée. Touche par défaut : **Option droite** (Réglages ▸ Clic).
+
+- [ ] Le menu affiche « Clic : Option droite · arrêt d'urgence ⌃⌥⌘Échap ».
+- [ ] **Clic** : regarder un dossier dans le Finder (il se surligne), appuyer et relâcher Option droite : il est sélectionné.
+- [ ] **Double-clic** : deux appuis rapides sur un dossier : il s'ouvre.
+- [ ] **Glisser-déposer** : regarder un fichier, garder Option droite enfoncée, regarder un autre dossier, relâcher :
+      le fichier est déplacé.
+- [ ] **Lien Safari** : regarder un lien, appuyer : il s'ouvre.
+- [ ] **Clic droit** : Contrôle + Option droite sur un fichier : le menu contextuel s'ouvre.
+- [ ] Option droite ne tape rien et n'agit pas comme Option (le clic n'est pas un Option-clic).
+- [ ] Option gauche fonctionne normalement ; quand le suivi est en pause, Option droite aussi.
+- [ ] La vraie souris marche toujours, et ses clics continuent d'être appris (pas ceux envoyés au regard).
+- [ ] **⌃⌥⌘Échap** : le suivi s'arrête, la caméra s'éteint, Option droite redevient normale.
+
+Réglages : touche, délai du double-clic (300 ms), distance du glisser (80 pt), cible prise 120 ms avant l'appui.
+
+À rapporter : ce qui marche dans le Finder et Safari, et les clics qui partent au mauvais endroit.

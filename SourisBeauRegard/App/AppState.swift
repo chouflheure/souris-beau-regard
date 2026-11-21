@@ -72,6 +72,20 @@ final class AppState {
     @ObservationIgnored private var isCameraStarting = false
     @ObservationIgnored private var engine = GazeEngine()
     @ObservationIgnored private var blinkDetector = BlinkDetector()
+    @ObservationIgnored private var headDrift = HeadDriftMonitor()
+    // Clic.
+    @ObservationIgnored private let keyClick = KeyClickSource()
+    @ObservationIgnored private var clickLogic = ClickLogic()
+    @ObservationIgnored private var gazeHistory = PointHistory()
+    /// Erreur de démarrage de l'interception de la touche (autorisation manquante…).
+    private(set) var clickSourceError: String?
+    private(set) var isClickSourceRunning = false
+    private(set) var clicksSent = 0
+    /// Écarts des derniers clics (avant apprentissage), pour repérer une dérive.
+    @ObservationIgnored private var recentClickErrors: [Double] = []
+    /// L'app propose de recaler (la tête a bougé, ou les clics montrent une dérive).
+    private(set) var recenterSuggested = false
+    private(set) var headDriftScore: Double?
     @ObservationIgnored private var lastGazeUpdate: Double = 0
     @ObservationIgnored private var lastGazePoint: CGPoint?
     @ObservationIgnored private var lastFrameArrival: Double = 0
@@ -121,6 +135,7 @@ final class AppState {
                 try? await Task.sleep(for: .seconds(1))
                 self?.checkCameraStall()
                 self?.permissions.refresh()
+                self?.updateClickSource()
             }
         }
         screenObserver = NotificationCenter.default.addObserver(
@@ -166,11 +181,17 @@ final class AppState {
         recenterShortcutAvailable = GlobalHotKeys.shared.register(GlobalHotKeys.recenter) { [weak self] in
             self?.recenter()
         }
+        GlobalHotKeys.shared.register(GlobalHotKeys.emergencyStop) { [weak self] in
+            self?.emergencyStop()
+        }
+        keyClick.isActive = { [weak self] in self?.isClickActive ?? false }
+        keyClick.onEvent = { [weak self] event in self?.handleClickEvent(event) }
         if !permissions.allRequiredGranted || !settings.hasCompletedOnboarding {
             showOnboarding()
         }
         updateCameraState()
         updateOverlay()
+        updateClickSource()
     }
 
     // MARK: - Fenêtres
@@ -215,6 +236,60 @@ final class AppState {
         gaze = nil
         updateCameraState()
         updateOverlay()
+        updateClickSource()
+    }
+
+    // MARK: - Clic
+
+    /// La touche de clic est interceptée : suivi actif et clic activé.
+    var isClickActive: Bool {
+        isTrackingActive && settings.clickEnabled && !isRecentering
+    }
+
+    /// Démarre ou arrête l'interception de la touche selon l'état.
+    func updateClickSource() {
+        guard !Self.isRunningTests else { return }
+        keyClick.keyCode = settings.clickKeyCode
+        clickLogic.doubleClickInterval = settings.doubleClickInterval
+        clickLogic.dragThreshold = CGFloat(settings.dragThreshold)
+        let wanted = settings.clickEnabled && settings.trackingEnabled && calibration != nil
+            && permissions.accessibility == .granted
+        if wanted, !keyClick.isRunning {
+            if keyClick.start() {
+                clickSourceError = nil
+            } else {
+                clickSourceError = "Impossible d'intercepter la touche : autorisez l'Accessibilité (et la Surveillance de l'entrée si macOS la demande)."
+            }
+        } else if !wanted, keyClick.isRunning {
+            keyClick.stop()
+        }
+        isClickSourceRunning = keyClick.isRunning
+    }
+
+    private func handleClickEvent(_ event: ClickSourceEvent) {
+        let now = ProcessInfo.processInfo.systemUptime
+        switch event {
+        case .press(let secondary):
+            // La cible d'environ 120 ms avant l'appui : le regard part souvent vers la suite au moment d'appuyer.
+            let before = now - settings.clickLookBack
+            let point = targetHistory.target(at: before)?.center
+                ?? (settings.targetingEnabled ? currentTarget?.center : nil)
+                ?? gazeHistory.point(at: before)
+                ?? gaze?.point
+            guard let point else { return }
+            MouseController.perform(clickLogic.press(at: point, time: now, secondary: secondary))
+            clicksSent += 1
+        case .release:
+            MouseController.perform(clickLogic.release(time: now))
+        }
+    }
+
+    /// Arrêt d'urgence (⌃⌥⌘Échap) : relâche la souris, coupe l'interception, le suivi et la caméra.
+    func emergencyStop() {
+        MouseController.perform(clickLogic.cancel())
+        keyClick.stop()
+        isClickSourceRunning = false
+        settings.trackingEnabled = false   // prévient l'état central (caméra, surlignage)
     }
 
     private func updateOverlay() {
@@ -263,6 +338,11 @@ final class AppState {
             recenterMessage = "Recentrage impossible : regard non mesuré (visage bien visible ?)."
             return
         }
+        // La position actuelle de la tête devient la référence.
+        model.headReference = HeadPose.median(of: recenterSamples) ?? model.headReference
+        headDrift.acknowledge()
+        recentClickErrors = []
+        updateRecenterSuggestion()
         // Le recentrage remplace l'historique des écarts (la tête a sans doute bougé),
         // sans ajouter ces mesures à l'apprentissage.
         model.learn(from: recenterSamples, target: CGPoint(x: model.screenFrame.midX, y: model.screenFrame.midY),
@@ -272,6 +352,19 @@ final class AppState {
         engine.reset()
         recenterMessage = String(format: "Décalage corrigé : %.0f, %.0f pt", model.offset.x, model.offset.y)
         saveCalibration(immediately: true)
+    }
+
+    /// Écart médian des 3 derniers clics au-delà duquel on propose de recaler (points).
+    private static let clickDriftThreshold = 200.0
+
+    private func updateRecenterSuggestion() {
+        let clickDrift = recentClickErrors.count >= 3 && Stats.median(recentClickErrors) > Self.clickDriftThreshold
+        let suggested = settings.suggestRecenter && isTrackingActive && !isRecentering
+            && (headDrift.suggestRecenter || clickDrift)
+        if suggested != recenterSuggested { recenterSuggested = suggested }
+        overlay.showBanner(suggested
+            ? "Vous avez bougé : \(GlobalHotKeys.recenter.label) pour recaler (regardez le point au centre)"
+            : nil)
     }
 
     func clearRecenterOffset() {
@@ -292,8 +385,13 @@ final class AppState {
     private func startClickLearning() {
         guard clickMonitor == nil else { return }
         // Appelé sur le fil principal ; n'intercepte rien (écoute seule).
-        clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown]) { [weak self] _ in
-            MainActor.assumeIsolated { self?.learnFromClick(atAppKit: NSEvent.mouseLocation) }
+        clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown]) { [weak self] event in
+            MainActor.assumeIsolated {
+                // Nos propres clics (envoyés au regard) ne servent pas à apprendre.
+                let ours = event.cgEvent?.getIntegerValueField(.eventSourceUserData) == MouseController.marker
+                guard !ours else { return }
+                self?.learnFromClick(atAppKit: NSEvent.mouseLocation)
+            }
         }
     }
 
@@ -308,6 +406,7 @@ final class AppState {
         guard features.count >= 3 else { return }
         let before = model.predict(features[features.count / 2])
         lastClickError = Double(hypot(before.x - target.x, before.y - target.y))
+        recentClickErrors = Array((recentClickErrors + [lastClickError ?? 0]).suffix(3))
         let outcome = model.learn(from: features, target: target, maxError: settings.learningMaxError,
                                   eventWindow: settings.learningEventWindow)
         guard outcome == .accepted else {
@@ -608,6 +707,13 @@ final class AppState {
         }
 
         guard isTrackingActive else { return }
+        if let valid, settings.suggestRecenter {
+            let size = output.frame.imageSize
+            if size.width > 0 { headDrift.aspect = Double(size.height / size.width) }
+            headDrift.update(HeadPose(valid), reference: model.headReference, time: now)
+            headDriftScore = headDrift.score
+            updateRecenterSuggestion()
+        }
         // Le panneau a pu être retiré par le système (changement d'écran, de bureau…).
         if settings.showGazePoint, !overlay.isVisible { updateOverlay() }
 
@@ -626,6 +732,9 @@ final class AppState {
 
         if let estimate {
             gaze = estimate
+            gazeHistory.record(estimate.point, at: now)
+            // Glisser-déposer : suit le regard lissé, sans accroche aux éléments.
+            if clickLogic.isPressed { MouseController.perform(clickLogic.gazeMoved(to: estimate.smoothed)) }
             gazeSpread = engine.rawSpread
             stabilizerNoise = engine.stabilizerNoise
             gazeJumpCount = engine.jumpCount
@@ -712,6 +821,7 @@ final class AppState {
         if calibration?.needsRecalibration == true { return "Recalibrez : décalage anormal ou mesures changées" }
         if calibrationCameraMismatch { return "Recalibrez : calibration faite avec une autre caméra" }
         if !settings.trackingEnabled { return "Suivi en pause" }
+        if recenterSuggested { return "Vous avez bougé : \(GlobalHotKeys.recenter.label) pour recaler" }
         if calibrationSession != nil { return "Calibration en cours" }
         if let cameraError { return "Caméra : \(cameraError)" }
         if !isCameraRunning { return "Démarrage de la caméra…" }

@@ -9,6 +9,30 @@ struct SettingsView: View {
     var body: some View {
         @Bindable var settings = appState.settings
         Form {
+            Section("Clic") {
+                Toggle("Cliquer avec une touche", isOn: $settings.clickEnabled)
+                Picker("Touche de clic", selection: $settings.clickKeyCode) {
+                    ForEach(KeyCodes.choices.indices, id: \.self) { i in
+                        Text(KeyCodes.choices[i].name).tag(KeyCodes.choices[i].code)
+                    }
+                }
+                LabeledContent("Double-clic : délai max. (ms)") {
+                    Slider(value: $settings.doubleClickInterval, in: 0.15...0.6)
+                    Text(String(format: "%.0f", settings.doubleClickInterval * 1000)).monospacedDigit()
+                }
+                LabeledContent("Glisser au-delà de (pt)") {
+                    Slider(value: $settings.dragThreshold, in: 30...300)
+                    Text(String(format: "%.0f", settings.dragThreshold)).monospacedDigit()
+                }
+                LabeledContent("Cible prise avant l'appui (ms)") {
+                    Slider(value: $settings.clickLookBack, in: 0...0.4)
+                    Text(String(format: "%.0f", settings.clickLookBack * 1000)).monospacedDigit()
+                }
+                Text("Touche maintenue + regard qui se déplace : glisser-déposer. Contrôle + touche : clic droit. Arrêt d'urgence : \(GlobalHotKeys.emergencyStop.label).")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             Section("Caméra") {
                 Picker("Caméra", selection: $settings.cameraID) {
                     Text("Automatique (intégrée)").tag(String?.none)
@@ -24,6 +48,7 @@ struct SettingsView: View {
             Section("Regard") {
                 Toggle("Suivre le regard", isOn: $settings.trackingEnabled)
                 Toggle("Afficher le point de regard", isOn: $settings.showGazePoint)
+                Toggle("Proposer de recaler quand je bouge", isOn: $settings.suggestRecenter)
                 Picker("Localisation de la pupille", selection: $settings.pupilLocator) {
                     ForEach(PupilLocatorKind.allCases) { Text($0.label).tag($0) }
                 }

@@ -7,8 +7,8 @@ Tout tourne en local avec la webcam du Mac, sans réseau, et aucune image n'est 
 Une webcam donne un regard imprécis (2 à 4 cm d'erreur à l'écran). L'app ne vise donc pas un pixel
 mais l'**élément cliquable le plus proche** du regard, trouvé grâce à l'API d'accessibilité de macOS.
 
-> État : **étape 3 / 6** — autorisations, débogage, calibration, point de regard, et surlignage
-> de l'élément cliquable regardé (accessibilité).
+> État : **étape 4 / 6** — calibration, point de regard, surlignage de l'élément regardé (accessibilité),
+> clic au clavier (Option droite), apprentissage continu par les clics de souris.
 > Voir `TESTING.md` pour les vérifications de chaque étape.
 
 ## Prérequis
@@ -97,7 +97,7 @@ SourisBeauRegard/
 ├── Gaze/         GazeFeatures, RidgeRegression, CalibrationModel/Plan/Session,
 │                 OneEuroFilter, FixationDetector, GazeEngine
 ├── Targeting/    AXTargetFinder (grille 5×5 autour du regard), choix de la cible avec hystérésis
-├── Input/        raccourcis globaux (recentrage) ; à l'étape 4 : sources de clic, événements souris
+├── Input/        ClickSource, KeyClickSource (CGEventTap), ClickLogic, MouseController, raccourcis globaux
 ├── Geometry/     CoordinateSpaces : seul module de conversion Vision / AppKit / Quartz
 └── UI/           débogage, réglages, surlignage (OverlayWindow), calibration plein écran
 SourisBeauRegardTests/   tests de la logique pure
@@ -119,3 +119,12 @@ de macOS sur une grille de 5 × 5 points dans le rayon d'accroche (120 pt par d�
 élément qui propose « AXPress »), et garde celui dont le centre est le plus proche du regard.
 On ne change de cible que si la nouvelle reste la plus proche 150 ms. Pour Chrome et les apps Electron,
 l'app active leur accessibilité (`AXManualAccessibility`).
+
+## Cliquer
+
+Regarder un élément (il se surligne), puis appuyer sur **Option droite** : le clic part au centre de
+l'élément retenu environ 120 ms avant l'appui. Touche maintenue pendant que le regard se déplace :
+glisser-déposer. Deux appuis rapides : double-clic. Contrôle + touche : clic droit. La touche est avalée
+(elle ne tape rien) seulement quand le suivi est actif. La souris réelle n'est jamais interceptée.
+
+**Arrêt d'urgence : ⌃⌥⌘Échap** (coupe l'interception de la touche, relâche la souris, éteint la caméra).

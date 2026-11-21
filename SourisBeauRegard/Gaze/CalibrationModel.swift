@@ -64,6 +64,8 @@ struct CalibrationModel: Codable, Sendable, Equatable {
     var pupilAlgorithm: Int?
     /// Caméra utilisée à la calibration (identifiant AVFoundation).
     var cameraID: String?
+    /// Position de la tête de référence (calibration, puis dernier recalage).
+    var headReference: HeadPose?
 
     /// Décalage au-delà duquel ce n'est plus un décalage mais une calibration à refaire (points).
     static let maxAbsoluteOffset: Double = 500
@@ -139,6 +141,9 @@ struct CalibrationModel: Codable, Sendable, Equatable {
     /// (en refaisant le choix automatique s'il y en avait un).
     mutating func finalize(validation groups: [[CalibrationSample]], trainOnValidation: Bool) throws {
         validationSamples = groups
+        // Les points de validation sont pris à la position habituelle (après les autres positions).
+        headReference = HeadPose.median(of: groups.flatMap { $0 }.map(\.features))
+            ?? HeadPose.median(of: calibrationSamples.map(\.features))
         validation = Self.validate(groups, kind: kind, with: regression)
         guard trainOnValidation, groups.contains(where: { !$0.isEmpty }) else { return }
         trainedOnValidation = true

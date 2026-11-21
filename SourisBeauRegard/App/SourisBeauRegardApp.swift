@@ -49,6 +49,11 @@ struct MenuContent: View {
                  + (appState.clicksRejected > 0 ? ", \(appState.clicksRejected) ignoré(s)" : ""))
         }
         Text(appState.isCameraRunning ? "Caméra : active" : "Caméra : arrêtée")
+        if appState.isClickSourceRunning {
+            Text("Clic : \(KeyCodes.name(for: appState.settings.clickKeyCode)) · arrêt d'urgence \(GlobalHotKeys.emergencyStop.label)")
+        } else if let error = appState.clickSourceError {
+            Text(error)
+        }
         if let validation = appState.calibration?.validation {
             Text("Calibration : erreur moyenne \(Int(validation.meanError.rounded())) pt")
         } else if appState.calibration == nil {

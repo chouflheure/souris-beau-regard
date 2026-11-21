@@ -63,9 +63,12 @@ struct ImagePupilLocator: PupilLocator {
         }
         let eyeWidth = GazeFeatures.corners(of: polygon).map { hypot($0.0.x - $0.1.x, $0.0.y - $0.1.y) } ?? crop.width
         let side = max(3, Int((Double(eyeWidth) * irisFraction).rounded()))
-        guard let c = DarkCentroid.locateIris(gray: gray, width: cw, height: ch,
-                                              polygon: polygon, boxSide: side,
-                                              maskScaleX: Self.maskScaleX, maskScaleY: Self.maskScaleY)
+        // Noyau du filtre : ~14 % de la largeur de l'œil, impair, au moins 3.
+        let kernel = max(3, Int((Double(eyeWidth) * 0.14).rounded()) | 1)
+        guard let c = DarkCentroid.locateIrisRobust(gray: gray, width: cw, height: ch,
+                                                    polygon: polygon, boxSide: side,
+                                                    maskScaleX: Self.maskScaleX, maskScaleY: Self.maskScaleY,
+                                                    kernel: kernel)
         else { return nil }
         return CoordinateSpaces.imagePixelsToVision(CGPoint(x: c.x + crop.minX, y: c.y + crop.minY),
                                                     imageSize: imageSize)
@@ -218,5 +221,111 @@ extension DarkCentroid {
             }
         }
         return sw > 0 ? CGPoint(x: sx / sw, y: sy / sw) : CGPoint(x: centerX, y: centerY)
+    }
+}
+
+// MARK: - Recherche robuste : reflets, cils et ombre de paupière
+
+extension DarkCentroid {
+    /// Filtre min ou max sur un carré de côté `kernel` (bords : fenêtre tronquée), séparable.
+    static func morphology(_ g: [UInt8], width: Int, height: Int, kernel: Int, takeMax: Bool) -> [UInt8] {
+        let r = max(kernel / 2, 0)
+        guard r > 0, g.count == width * height else { return g }
+        var rows = [UInt8](repeating: 0, count: g.count)
+        for y in 0..<height {
+            for x in 0..<width {
+                var v = g[y * width + x]
+                for xx in max(0, x - r)...min(width - 1, x + r) {
+                    let p = g[y * width + xx]
+                    v = takeMax ? max(v, p) : min(v, p)
+                }
+                rows[y * width + x] = v
+            }
+        }
+        var out = [UInt8](repeating: 0, count: g.count)
+        for y in 0..<height {
+            for x in 0..<width {
+                var v = rows[y * width + x]
+                for yy in max(0, y - r)...min(height - 1, y + r) {
+                    let p = rows[yy * width + x]
+                    v = takeMax ? max(v, p) : min(v, p)
+                }
+                out[y * width + x] = v
+            }
+        }
+        return out
+    }
+
+    /// Fermeture puis ouverture : efface le sombre fin (cils, pupille) puis le clair petit (reflets).
+    /// Il ne reste que l'iris, tache sombre uniforme.
+    static func closeOpen(_ g: [UInt8], width: Int, height: Int, kernel: Int) -> [UInt8] {
+        let closed = morphology(morphology(g, width: width, height: height, kernel: kernel, takeMax: true),
+                                width: width, height: height, kernel: kernel, takeMax: false)
+        return morphology(morphology(closed, width: width, height: height, kernel: kernel, takeMax: false),
+                          width: width, height: height, kernel: kernel, takeMax: true)
+    }
+
+    /// Une corde de l'iris : ligne `y`, bord gauche et bord droit (pixels).
+    struct Chord: Equatable {
+        var y: Double
+        var left: Double
+        var right: Double
+    }
+
+    /// Bords gauche (clair → sombre) et droit (sombre → clair) de l'iris sur chaque ligne proche du centre.
+    static func irisChords(_ f: [UInt8], width: Int, height: Int, center: CGPoint, side: Int,
+                           minContrast: Int = 12) -> [Chord] {
+        let cx = Int(center.x), s = Double(side)
+        let lo = max(1, Int(Double(center.x) - 1.3 * s)), hi = min(width - 2, Int(Double(center.x) + 1.3 * s))
+        guard lo <= cx, cx <= hi else { return [] }
+        let y0 = max(1, Int(Double(center.y) - s)), y1 = min(height - 1, Int(Double(center.y) + s) + 1)
+        guard y0 < y1 else { return [] }
+        var chords: [Chord] = []
+        for y in y0..<y1 {
+            func gradient(_ x: Int) -> Int {
+                Int(f[y * width + min(width - 1, x + 1)]) - Int(f[y * width + max(0, x - 1)])
+            }
+            var left = lo, right = cx
+            for x in lo...cx where gradient(x) < gradient(left) { left = x }
+            for x in cx...hi where gradient(x) > gradient(right) { right = x }
+            guard -gradient(left) >= minContrast, gradient(right) >= minContrast else { continue }
+            chords.append(Chord(y: Double(y) + 0.5, left: Double(left), right: Double(right + 1)))
+        }
+        return chords
+    }
+
+    /// Centre du cercle passant par les cordes (moindres carrés sur (L/2)² + y² = 2·y·cy + c) ;
+    /// marche même si la paupière cache le haut de l'iris.
+    static func circleCenter(from chords: [Chord]) -> CGPoint? {
+        guard chords.count >= 3 else { return nil }
+        var syy = 0.0, sy = 0.0, sb = 0.0, syb = 0.0
+        let n = Double(chords.count)
+        for c in chords {
+            let a = 2 * c.y
+            let half = (c.right - c.left) / 2
+            let b = half * half + c.y * c.y
+            syy += a * a; sy += a; sb += b; syb += a * b
+        }
+        let det = syy * n - sy * sy
+        guard abs(det) > 1e-9 else { return nil }
+        let cy = (syb * n - sy * sb) / det
+        let cx = Stats.median(chords.map { ($0.left + $0.right) / 2 })
+        return CGPoint(x: cx, y: cy)
+    }
+
+    /// Iris robuste : filtre fermeture/ouverture, recherche du carré sombre, puis centre du cercle
+    /// ajusté sur les bords de l'iris (si on en trouve assez, et s'il reste proche).
+    static func locateIrisRobust(gray: [UInt8], width: Int, height: Int, polygon: [CGPoint]?,
+                                 boxSide: Int, maskScaleX: CGFloat, maskScaleY: CGFloat,
+                                 kernel: Int) -> CGPoint? {
+        guard gray.count == width * height else { return nil }
+        let filtered = closeOpen(gray, width: width, height: height, kernel: kernel)
+        guard let rough = locateIris(gray: filtered, width: width, height: height, polygon: polygon,
+                                     boxSide: boxSide, maskScaleX: maskScaleX, maskScaleY: maskScaleY)
+        else { return nil }
+        let chords = irisChords(filtered, width: width, height: height, center: rough, side: boxSide)
+        guard let fit = circleCenter(from: chords), fit.x.isFinite, fit.y.isFinite,
+              hypot(fit.x - rough.x, fit.y - rough.y) <= CGFloat(boxSide) else { return rough }
+        return fit
     }
 }
