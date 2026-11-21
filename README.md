@@ -70,10 +70,14 @@ puis relancer l'app et réautoriser.
 4. L'erreur moyenne et maximale s'affiche en points écran (objectif : moins de 150).
    **Entrée** garde la calibration, **R** recommence, **Échap** annule.
 
+Le modèle (deux yeux moyennés, + tête, ou complet) et λ sont choisis automatiquement par
+validation croisée ; on peut les imposer dans les réglages, comme le nombre de points (9, 16 ou 25).
+
 La calibration est enregistrée dans
 `~/Library/Application Support/SourisBeauRegard/calibration.json` et rechargée au lancement.
 Elle contient les mesures brutes : changer λ (réglages ou fenêtre de débogage) refait le calcul
-et l'erreur de validation sans recalibrer. Changer de méthode de pupille demande une nouvelle calibration.
+et l'erreur de validation sans recalibrer. Changer de méthode de pupille demande une nouvelle calibration,
+comme une mise à jour qui change les mesures (l'ancien fichier est alors ignoré).
 
 Le point de regard (cercle orange, vert pendant une fixation) s'affiche par-dessus tout ;
 menu ▸ *Afficher le point de regard* pour le masquer, *Suivre le regard* pour mettre en pause.

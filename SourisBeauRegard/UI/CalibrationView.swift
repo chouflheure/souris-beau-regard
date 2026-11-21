@@ -100,6 +100,9 @@ struct CalibrationView: View {
                 case .fitting:
                     message(title: "Calcul…", lines: [])
                 case .result(let result):
+                    if let result {
+                        ValidationPlot(result: result, screenFrame: session.screenFrame)
+                    }
                     resultView(result)
                 case .failed(let reason):
                     message(title: "Calibration impossible",
@@ -116,18 +119,23 @@ struct CalibrationView: View {
 
     @ViewBuilder
     private func resultView(_ result: ValidationResult?) -> some View {
+        let modelLine = session.model.map { model in
+            "Modèle : \(model.kind.label), λ = \(String(format: "%.2g", model.lambda))"
+                + (model.crossValidationError.map { String(format: " · validation croisée %.0f pt", $0) } ?? "")
+        } ?? ""
         if let result {
             let missing = result.pointErrors.filter { $0 == nil }.count
             message(title: "Erreur moyenne : \(Int(result.meanError.rounded())) points",
-                    lines: ["Erreur maximale : \(Int(result.maxError.rounded())) points"
+                    lines: ["Maximale : \(Int(result.maxError.rounded())) pt · en x : \(Int(result.meanErrorX.rounded())) pt · en y : \(Int(result.meanErrorY.rounded())) pt"
                                 + (missing > 0 ? " · \(missing) point(s) sans mesure" : ""),
+                            modelLine,
                             result.meanError < 150
                                 ? "Objectif atteint (moins de 150 points)."
-                                : "Au-dessus de l'objectif de 150 points : améliorez l'éclairage et recommencez.",
+                                : "Au-dessus de l'objectif de 150 points. Cercles cyan : cibles ; points rouges : estimations.",
                             "Entrée pour garder cette calibration · R pour recommencer · Échap pour annuler"])
         } else {
             message(title: "Validation sans mesure",
-                    lines: ["Aucun point de vérification n'a pu être mesuré.",
+                    lines: ["Aucun point de vérification n'a pu être mesuré.", modelLine,
                             "Entrée pour garder quand même · R pour recommencer · Échap pour annuler"])
         }
     }
@@ -161,5 +169,30 @@ private struct ShrinkingDot: View {
                 Circle().fill(color).frame(width: 6, height: 6)
             }
         }
+    }
+}
+
+/// Cibles de validation (cercles cyan) et estimations du modèle (points rouges), reliées par un trait.
+private struct ValidationPlot: View {
+    let result: ValidationResult
+    let screenFrame: CGRect
+
+    var body: some View {
+        Canvas { context, _ in
+            for (target, estimate) in zip(result.targets, result.estimates) {
+                guard let target, let estimate else { continue }
+                let t = CGPoint(x: target.x - screenFrame.minX, y: target.y - screenFrame.minY)
+                let e = CGPoint(x: estimate.x - screenFrame.minX, y: estimate.y - screenFrame.minY)
+                var line = Path()
+                line.move(to: t)
+                line.addLine(to: e)
+                context.stroke(line, with: .color(.white.opacity(0.4)), lineWidth: 1)
+                context.stroke(Path(ellipseIn: CGRect(x: t.x - 12, y: t.y - 12, width: 24, height: 24)),
+                               with: .color(.cyan), lineWidth: 2)
+                context.fill(Path(ellipseIn: CGRect(x: e.x - 6, y: e.y - 6, width: 12, height: 12)),
+                             with: .color(.red))
+            }
+        }
+        .allowsHitTesting(false)
     }
 }

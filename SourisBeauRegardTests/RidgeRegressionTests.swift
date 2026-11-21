@@ -89,7 +89,7 @@ final class RidgeRegressionTests: XCTestCase {
     // MARK: - Modèle de calibration et sauvegarde
 
     private func features(_ v: [Double]) -> GazeFeatures {
-        GazeFeatures(leftPupilX: v[0], leftPupilY: v[1], rightPupilX: v[2], rightPupilY: v[3],
+        GazeFeatures(leftPupilX: v[0], leftPupilY: v[1], rightPupilX: v[2], rightPupilY: v[3], aperture: v[10],
                      yaw: v[4], pitch: v[5], roll: v[6], faceCenterX: v[7], faceCenterY: v[8], faceSize: v[9])
     }
 
@@ -103,7 +103,8 @@ final class RidgeRegressionTests: XCTestCase {
                 let noise = { Double.random(in: -0.002...0.002, using: &g) }
                 let v = [0.3 + 0.4 * nx + noise(), 0.6 - 0.3 * ny + noise(),
                          0.3 + 0.4 * nx + noise(), 0.6 - 0.3 * ny + noise(),
-                         noise(), noise(), noise(), 0.5 + noise(), 0.5 + noise(), 0.3 + noise()]
+                         noise(), noise(), noise(), 0.5 + noise(), 0.5 + noise(), 0.3 + noise(),
+                         0.35 - 0.05 * ny + noise()]
                 out.append(CalibrationSample(features: features(v), target: p))
             }
         }
@@ -113,24 +114,47 @@ final class RidgeRegressionTests: XCTestCase {
     func testCalibrationModelFitValidateAndRefit() throws {
         let screen = CGRect(x: 0, y: 0, width: 1440, height: 900)
         let grid = CalibrationPlan.calibrationGrid.map { CoordinateSpaces.normalizedToQuartz($0, screenFrameQuartz: screen) }
-        var model = try CalibrationModel.fit(samples: simulatedSamples(points: grid, perPoint: 20),
-                                             screenFrame: screen, pupilLocator: .image, lambda: 1)
+        for kind in GazeModelKind.allCases {
+            var model = try CalibrationModel.fit(samples: simulatedSamples(points: grid, perPoint: 20),
+                                                 screenFrame: screen, pupilLocator: .image, kind: kind, lambda: 1)
+            let validationTargets = CalibrationPlan.validationPoints.map { CoordinateSpaces.normalizedToQuartz($0, screenFrameQuartz: screen) }
+            let groups = validationTargets.map { simulatedSamples(points: [$0], perPoint: 10) }
+            try model.finalize(validation: groups, trainOnValidation: false)
+            let result = try XCTUnwrap(model.validation)
+            XCTAssertLessThan(result.meanError, 40, "\(kind)")
+            XCTAssertEqual(result.pointErrors.count, 5)
+            XCTAssertEqual(result.estimates.count, 5)
+            XCTAssertLessThanOrEqual(result.meanErrorX, result.meanError + 1e-9)
+
+            try model.refit(kind: kind, lambda: 1e6)
+            XCTAssertEqual(model.regression.lambda, 1e6)
+            XCTAssertGreaterThan(try XCTUnwrap(model.validation).meanError, result.meanError)
+        }
+    }
+
+    func testAutomaticChoiceAndTrainingOnValidation() throws {
+        let screen = CGRect(x: 0, y: 0, width: 1440, height: 900)
+        let grid = CalibrationPlan.calibrationGrid.map { CoordinateSpaces.normalizedToQuartz($0, screenFrameQuartz: screen) }
+        var model = try CalibrationModel.fit(samples: simulatedSamples(points: grid, perPoint: 15),
+                                             screenFrame: screen, pupilLocator: .image, kind: nil, lambda: nil)
+        XCTAssertNotNil(model.autoKind)
+        XCTAssertNotNil(model.autoLambda)
+        XCTAssertNotNil(model.crossValidationError)
         let validationTargets = CalibrationPlan.validationPoints.map { CoordinateSpaces.normalizedToQuartz($0, screenFrameQuartz: screen) }
         let groups = validationTargets.map { simulatedSamples(points: [$0], perPoint: 10) }
-        model.setValidation(groups)
-        let result = try XCTUnwrap(model.validation)
-        XCTAssertLessThan(result.meanError, 40)
-        XCTAssertEqual(result.pointErrors.count, 5)
-
-        try model.refit(lambda: 1e6)
-        XCTAssertEqual(model.regression.lambda, 1e6)
-        XCTAssertGreaterThan(try XCTUnwrap(model.validation).meanError, result.meanError)
+        try model.finalize(validation: groups, trainOnValidation: true)
+        XCTAssertTrue(model.trainedOnValidation)
+        XCTAssertEqual(model.trainingSamples.count, 9 * 15 + 5 * 10)
+        XCTAssertEqual(model.kind, model.autoKind)
+        XCTAssertEqual(model.lambda, model.autoLambda)
+        XCTAssertLessThan(try XCTUnwrap(model.validation).meanError, 40)
     }
 
     func testCalibrationNeedsEnoughSamples() {
         let screen = CGRect(x: 0, y: 0, width: 1440, height: 900)
         let samples = simulatedSamples(points: [CGPoint(x: 100, y: 100)], perPoint: 50)
-        XCTAssertThrowsError(try CalibrationModel.fit(samples: samples, screenFrame: screen, pupilLocator: .vision, lambda: 1)) {
+        XCTAssertThrowsError(try CalibrationModel.fit(samples: samples, screenFrame: screen, pupilLocator: .vision,
+                                                      kind: .binocular, lambda: 1)) {
             XCTAssertEqual($0 as? CalibrationModel.FitError, .notEnoughSamples)
         }
     }
@@ -139,7 +163,8 @@ final class RidgeRegressionTests: XCTestCase {
         let screen = CGRect(x: 0, y: 0, width: 1440, height: 900)
         let grid = CalibrationPlan.calibrationGrid.map { CoordinateSpaces.normalizedToQuartz($0, screenFrameQuartz: screen) }
         let samples = simulatedSamples(points: grid, perPoint: 10)
-        var model = try CalibrationModel.fit(samples: samples, screenFrame: screen, pupilLocator: .image, lambda: 1)
+        var model = try CalibrationModel.fit(samples: samples, screenFrame: screen, pupilLocator: .image,
+                                             kind: .full, lambda: 1)
         let f = samples[0].features
         let before = model.predict(f)
         model.offset = CGPoint(x: 12, y: -8)
@@ -157,9 +182,9 @@ final class RidgeRegressionTests: XCTestCase {
         let screen = CGRect(x: -1440, y: 0, width: 1440, height: 900)
         let grid = CalibrationPlan.calibrationGrid.map { CoordinateSpaces.normalizedToQuartz($0, screenFrameQuartz: screen) }
         var model = try CalibrationModel.fit(samples: simulatedSamples(points: grid, perPoint: 5),
-                                             screenFrame: screen, pupilLocator: .vision, lambda: 2,
+                                             screenFrame: screen, pupilLocator: .vision, kind: .binocularHead, lambda: 2,
                                              date: Date(timeIntervalSince1970: 1_700_000_000))
-        model.setValidation([simulatedSamples(points: [grid[4]], perPoint: 3), []])
+        try model.finalize(validation: [simulatedSamples(points: [grid[4]], perPoint: 3), []], trainOnValidation: false)
         model.offset = CGPoint(x: 3, y: 4)
         try store.save(model)
 
@@ -169,7 +194,51 @@ final class RidgeRegressionTests: XCTestCase {
         let f = model.calibrationSamples[0].features
         XCTAssertEqual(loaded.predict(f), model.predict(f))
 
+        // Une calibration d'une version antérieure n'est pas rechargée.
+        model.version = 1
+        try store.save(model)
+        XCTAssertNil(store.load())
+
         store.delete()
         XCTAssertNil(store.load())
+    }
+
+    // MARK: - Choix du modèle
+
+    func testModelInputs() {
+        let f = features([0.2, 0.3, 0.4, 0.5, 1, 2, 3, 4, 5, 6, 0.7])
+        XCTAssertEqual(GazeModelKind.binocular.inputs(f), [0.30000000000000004, 0.4, 0.7])
+        XCTAssertEqual(GazeModelKind.binocularHead.inputs(f).count, 9)
+        XCTAssertEqual(GazeModelKind.full.inputs(f), [0.2, 0.3, 0.4, 0.5, 0.7, 1, 2, 3, 4, 5, 6])
+    }
+
+    func testCrossValidationPrefersSimpleModelWhenHeadIsNoise() throws {
+        // Les mesures de la tête ne sont que du bruit : le modèle complet sur-apprend.
+        var g = SeededGenerator(state: 99)
+        let screen = CGRect(x: 0, y: 0, width: 1440, height: 900)
+        var samples: [CalibrationSample] = []
+        for p in CalibrationPlan.calibrationGrid.map({ CoordinateSpaces.normalizedToQuartz($0, screenFrameQuartz: screen) }) {
+            // La tête bouge un peu d'un point à l'autre, sans rapport avec le regard.
+            let head = (0..<6).map { _ in Double.random(in: -1...1, using: &g) }
+            for _ in 0..<15 {
+                let nx = Double(p.x) / 1440, ny = Double(p.y) / 900
+                let n = { Double.random(in: -0.01...0.01, using: &g) }
+                let v = [0.3 + 0.4 * nx + n(), 0.1 - 0.1 * ny + n(), 0.3 + 0.4 * nx + n(), 0.1 - 0.1 * ny + n()]
+                    + head.map { $0 + n() } + [0.3 + n()]
+                samples.append(CalibrationSample(features: features(v), target: p))
+            }
+        }
+        let best = try XCTUnwrap(ModelSelection.best(samples))
+        XCTAssertEqual(best.kind, .binocular)
+        let full = try XCTUnwrap(ModelSelection.crossValidationError(samples, kind: .full, lambda: 0.03))
+        XCTAssertLessThan(best.error, full)
+    }
+
+    func testGroupsKeepOrder() {
+        let a = CalibrationSample(features: features(Array(repeating: 0, count: 11)), target: CGPoint(x: 1, y: 1))
+        let b = CalibrationSample(features: features(Array(repeating: 0, count: 11)), target: CGPoint(x: 2, y: 2))
+        let groups = ModelSelection.groups([a, b, a, a, b])
+        XCTAssertEqual(groups.map(\.count), [3, 2])
+        XCTAssertEqual(groups[0][0].target, CGPoint(x: 1, y: 1))
     }
 }

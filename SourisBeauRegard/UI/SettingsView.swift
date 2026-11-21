@@ -15,10 +15,7 @@ struct SettingsView: View {
                 Picker("Localisation de la pupille", selection: $settings.pupilLocator) {
                     ForEach(PupilLocatorKind.allCases) { Text($0.label).tag($0) }
                 }
-                LabeledContent("Régularisation λ") {
-                    Slider(value: $settings.ridgeLambdaLog10, in: -2...3)
-                    Text(String(format: "%.2g", settings.ridgeLambda)).monospacedDigit()
-                }
+                ModelControls()
             }
             Section("Lissage") {
                 LabeledContent("Coupure minimale (Hz)") {
@@ -57,5 +54,33 @@ struct SettingsView: View {
         .frame(width: 480)
         .padding()
         .onAppear { NSApp.activate() }
+    }
+}
+
+/// Choix du modèle de régression, de λ et de la grille de calibration (réglages et débogage).
+struct ModelControls: View {
+    @Environment(AppState.self) private var appState
+
+    var body: some View {
+        @Bindable var settings = appState.settings
+        VStack(alignment: .leading, spacing: 6) {
+            Picker("Modèle", selection: $settings.modelChoice) {
+                Text("Automatique (validation croisée)").tag(GazeModelKind?.none)
+                ForEach(GazeModelKind.allCases) { Text($0.label).tag(GazeModelKind?.some($0)) }
+            }
+            Toggle("λ automatique", isOn: $settings.lambdaAuto)
+            if !settings.lambdaAuto {
+                LabeledContent("λ (ridge)") {
+                    Slider(value: $settings.ridgeLambdaLog10, in: -2...3)
+                    Text(String(format: "%.2g", settings.ridgeLambda)).monospacedDigit()
+                }
+            }
+            Picker("Points de calibration", selection: $settings.calibrationGridSize) {
+                Text("9 (3 × 3)").tag(3)
+                Text("16 (4 × 4)").tag(4)
+                Text("25 (5 × 5)").tag(5)
+            }
+            Toggle("Apprendre aussi sur les points de validation", isOn: $settings.trainOnValidation)
+        }
     }
 }

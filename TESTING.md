@@ -79,3 +79,26 @@ Build et tests comme à l'étape 1 (les deux commandes `xcodebuild`).
 
 À rapporter : l'erreur moyenne et maximale obtenue (avec la méthode de pupille utilisée, et si possible
 avec les deux), la distance à l'écran, l'éclairage, et le comportement du cercle (tremblement, retard).
+
+### Étape 2 bis — Amélioration de la précision
+
+Après la première mesure à environ 300 pt (autant que de toujours viser le centre de l'écran) :
+- la pupille est maintenant repérée par rapport aux **coins de l'œil** et non à la boîte de l'œil
+  (la boîte suivait la paupière et écrasait le signal vertical) ;
+- trois modèles possibles, **choisis automatiquement par validation croisée** avec λ :
+  deux yeux moyennés, deux yeux + tête, complet (celui du cahier des charges, qui sur-apprend avec 9 points) ;
+- le modèle final apprend aussi sur les 5 points de validation (l'erreur affichée reste celle,
+  honnête, d'un modèle qui ne les a pas vus) ;
+- grille de 9, 16 ou 25 points au choix (Réglages ▸ Regard).
+
+L'ancienne calibration n'est plus lue (mesures différentes) : **recalibrer**.
+
+- [ ] L'écran de résultat montre les 5 cibles (cercles cyan) et les estimations (points rouges) reliées par un trait,
+      l'erreur **en x et en y** séparément, le modèle choisi, λ et l'erreur de validation croisée.
+- [ ] Refaire une calibration avec 9 points, puis avec 16 points : noter les deux erreurs moyennes.
+- [ ] Dans le débogage, en regardant le haut puis le bas de l'écran sans bouger la tête,
+      *Pupille G/D (x, y)* : y doit changer (même faiblement, ~0,02 à 0,05).
+
+À rapporter : erreur moyenne, en x, en y, le modèle choisi, et si possible le fichier
+`calibration.json` (débogage ▸ *Afficher les données de calibration*). Il ne contient que des nombres
+(mesures et points visés), aucune image.

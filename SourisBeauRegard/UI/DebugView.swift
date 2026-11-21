@@ -153,7 +153,13 @@ private struct GazeSection: View {
                 if let calibration = appState.calibration {
                     ValueRow("Erreur de validation",
                              calibration.validation.map { String(format: "moy. %.0f pt · max %.0f pt", $0.meanError, $0.maxError) } ?? "—")
-                    ValueRow("Mesures de calibration", "\(calibration.calibrationSamples.count)")
+                    ValueRow("… en x / en y",
+                             calibration.validation.map { String(format: "%.0f pt / %.0f pt", $0.meanErrorX, $0.meanErrorY) } ?? "—")
+                    ValueRow("Validation croisée",
+                             calibration.crossValidationError.map { String(format: "%.0f pt", $0) } ?? "—")
+                    ValueRow("Modèle", "\(calibration.kind.label), λ = \(String(format: "%.2g", calibration.lambda))")
+                    ValueRow("Mesures", "\(calibration.trainingSamples.count)"
+                             + (calibration.trainedOnValidation ? " (calibration + validation)" : ""))
                     if calibration.pupilLocator != settings.pupilLocator {
                         Label("Calibré avec « \(calibration.pupilLocator.label) » : recalibrez après avoir changé de méthode.",
                               systemImage: "exclamationmark.triangle.fill")
@@ -164,11 +170,10 @@ private struct GazeSection: View {
                 } else {
                     Text("Pas encore calibré.").foregroundStyle(.secondary).font(.callout)
                 }
-                LabeledContent("λ (ridge)") {
-                    Slider(value: $settings.ridgeLambdaLog10, in: -2...3)
-                    Text(String(format: "%.2g", settings.ridgeLambda)).monospacedDigit()
-                }
-                .font(.callout)
+                ModelControls()
+                    .font(.callout)
+                Button("Afficher les données de calibration") { appState.revealCalibrationFile() }
+                    .controlSize(.small)
 
                 if let gaze = appState.gaze {
                     ValueRow("Regard brut", String(format: "%.0f, %.0f", gaze.raw.x, gaze.raw.y))

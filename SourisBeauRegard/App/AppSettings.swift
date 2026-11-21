@@ -20,6 +20,10 @@ final class AppSettings {
         static let pupilLocator = "gaze.pupilLocator"
         static let pupilDarkFraction = "gaze.pupilDarkFraction"
         static let ridgeLambda = "gaze.ridgeLambda"
+        static let lambdaAuto = "gaze.lambdaAuto"
+        static let modelChoice = "gaze.modelChoice"
+        static let calibrationGridSize = "calibration.gridSize"
+        static let trainOnValidation = "calibration.trainOnValidation"
         static let trackingEnabled = "gaze.trackingEnabled"
         static let showGazePoint = "overlay.showGazePoint"
         static let smoothingMinCutoff = "gaze.smoothing.minCutoff"
@@ -59,6 +63,22 @@ final class AppSettings {
     /// Force de la régularisation ridge (λ).
     var ridgeLambda: Double {
         didSet { defaults.set(ridgeLambda, forKey: Key.ridgeLambda) }
+    }
+    /// λ choisi automatiquement par validation croisée à la calibration.
+    var lambdaAuto: Bool {
+        didSet { defaults.set(lambdaAuto, forKey: Key.lambdaAuto) }
+    }
+    /// Modèle imposé, ou `nil` pour un choix automatique par validation croisée.
+    var modelChoice: GazeModelKind? {
+        didSet { defaults.set(modelChoice?.rawValue ?? "auto", forKey: Key.modelChoice) }
+    }
+    /// Grille de calibration n×n (3 = 9 points, 4 = 16, 5 = 25).
+    var calibrationGridSize: Int {
+        didSet { defaults.set(calibrationGridSize, forKey: Key.calibrationGridSize) }
+    }
+    /// Le modèle final apprend aussi sur les 5 points de validation.
+    var trainOnValidation: Bool {
+        didSet { defaults.set(trainOnValidation, forKey: Key.trainOnValidation) }
     }
     /// Suivi du regard actif (si une calibration existe).
     var trackingEnabled: Bool {
@@ -105,6 +125,7 @@ final class AppSettings {
     var calibrationPlan: CalibrationPlan {
         var plan = CalibrationPlan()
         plan.minOpenness = minEyeOpenness
+        plan.gridSize = calibrationGridSize
         return plan
     }
 
@@ -124,7 +145,11 @@ final class AppSettings {
             Key.minFPS: 25.0,
             Key.pupilLocator: PupilLocatorKind.image.rawValue,
             Key.pupilDarkFraction: 0.12,
-            Key.ridgeLambda: 5.0,
+            Key.ridgeLambda: 10.0,
+            Key.lambdaAuto: true,
+            Key.modelChoice: "auto",
+            Key.calibrationGridSize: 3,
+            Key.trainOnValidation: true,
             Key.trackingEnabled: true,
             Key.showGazePoint: true,
             Key.smoothingMinCutoff: 0.8,
@@ -140,6 +165,10 @@ final class AppSettings {
         pupilLocator = PupilLocatorKind(rawValue: defaults.string(forKey: Key.pupilLocator) ?? "") ?? .image
         pupilDarkFraction = defaults.double(forKey: Key.pupilDarkFraction)
         ridgeLambda = defaults.double(forKey: Key.ridgeLambda)
+        lambdaAuto = defaults.bool(forKey: Key.lambdaAuto)
+        modelChoice = GazeModelKind(rawValue: defaults.string(forKey: Key.modelChoice) ?? "auto")
+        calibrationGridSize = min(max(defaults.integer(forKey: Key.calibrationGridSize), 3), 5)
+        trainOnValidation = defaults.bool(forKey: Key.trainOnValidation)
         trackingEnabled = defaults.bool(forKey: Key.trackingEnabled)
         showGazePoint = defaults.bool(forKey: Key.showGazePoint)
         smoothingMinCutoff = defaults.double(forKey: Key.smoothingMinCutoff)

@@ -29,18 +29,25 @@ final class CalibrationSession {
     let screenFrame: CGRect
     let plan: CalibrationPlan
     let pupilLocator: PupilLocatorKind
-    let lambda: Double
+    /// Modèle et λ imposés, ou `nil` pour un choix automatique par validation croisée.
+    let kind: GazeModelKind?
+    let lambda: Double?
+    /// Le modèle final apprend aussi sur les points de validation.
+    let trainOnValidation: Bool
 
     /// Appelé à la fin : le modèle si l'utilisateur valide, `nil` s'il annule.
     @ObservationIgnored var onFinish: (@MainActor (CalibrationModel?) -> Void)?
     @ObservationIgnored private var samples: [CalibrationPlan.TimedSample] = []
     @ObservationIgnored private var task: Task<Void, Never>?
 
-    init(screenFrame: CGRect, plan: CalibrationPlan, pupilLocator: PupilLocatorKind, lambda: Double) {
+    init(screenFrame: CGRect, plan: CalibrationPlan, pupilLocator: PupilLocatorKind,
+         kind: GazeModelKind?, lambda: Double?, trainOnValidation: Bool) {
         self.screenFrame = screenFrame
         self.plan = plan
         self.pupilLocator = pupilLocator
+        self.kind = kind
         self.lambda = lambda
+        self.trainOnValidation = trainOnValidation
     }
 
     static var now: Double { ProcessInfo.processInfo.systemUptime }
@@ -88,7 +95,7 @@ final class CalibrationSession {
 
     private func run() async {
         var generator = SystemRandomNumberGenerator()
-        let points = CalibrationPlan.calibrationPoints(using: &generator)
+        let points = plan.calibrationPoints(using: &generator)
 
         stage = .calibrating
         var calibration: [CalibrationSample] = []
@@ -103,7 +110,7 @@ final class CalibrationSession {
         var fitted: CalibrationModel
         do {
             fitted = try CalibrationModel.fit(samples: calibration, screenFrame: screenFrame,
-                                              pupilLocator: pupilLocator, lambda: lambda)
+                                              pupilLocator: pupilLocator, kind: kind, lambda: lambda)
         } catch {
             stage = .failed(error.localizedDescription)
             task = nil
@@ -118,7 +125,15 @@ final class CalibrationSession {
             let target = CoordinateSpaces.normalizedToQuartz(p, screenFrameQuartz: screenFrame)
             groups.append(kept.map { CalibrationSample(features: $0, target: target) })
         }
-        fitted.setValidation(groups)
+        stage = .fitting
+        currentPoint = nil
+        do {
+            try fitted.finalize(validation: groups, trainOnValidation: trainOnValidation)
+        } catch {
+            stage = .failed(error.localizedDescription)
+            task = nil
+            return
+        }
 
         currentPoint = nil
         model = fitted

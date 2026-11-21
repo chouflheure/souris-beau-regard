@@ -130,7 +130,9 @@ final class AppState {
         let session = CalibrationSession(screenFrame: ScreenGeometry.quartzFrame(of: screen),
                                          plan: settings.calibrationPlan,
                                          pupilLocator: settings.pupilLocator,
-                                         lambda: settings.ridgeLambda)
+                                         kind: settings.modelChoice,
+                                         lambda: settings.lambdaAuto ? nil : settings.ridgeLambda,
+                                         trainOnValidation: settings.trainOnValidation)
         session.onFinish = { [weak self] model in self?.finishCalibration(model) }
         calibrationSession = session
         overlay.hide()
@@ -178,15 +180,33 @@ final class AppState {
         }
     }
 
-    /// Réapprend la calibration si λ a changé dans les réglages.
+    /// Modèle et λ voulus d'après les réglages (le choix automatique est celui fait à la calibration).
+    private func desiredFit(for model: CalibrationModel) -> (kind: GazeModelKind, lambda: Double) {
+        let kind = settings.modelChoice ?? model.autoKind ?? model.kind
+        let lambda = settings.lambdaAuto ? (model.autoLambda ?? model.lambda) : settings.ridgeLambda
+        return (kind, lambda)
+    }
+
+    /// Réapprend la calibration si le modèle ou λ a changé dans les réglages.
     private func refitIfNeeded() {
-        guard var model = calibration, model.regression.lambda != settings.ridgeLambda else { return }
+        guard var model = calibration else { return }
+        let wanted = desiredFit(for: model)
+        guard wanted.kind != model.kind || wanted.lambda != model.lambda else { return }
         do {
-            try model.refit(lambda: settings.ridgeLambda)
+            try model.refit(kind: wanted.kind, lambda: wanted.lambda)
             calibration = model
             saveCalibration(immediately: false)
         } catch {
-            // Garde l'ancien modèle ; le λ affiché reste celui des réglages.
+            // Garde l'ancien modèle.
+        }
+    }
+
+    /// Ouvre le dossier des données de calibration dans le Finder.
+    func revealCalibrationFile() {
+        if FileManager.default.fileExists(atPath: store.url.path) {
+            NSWorkspace.shared.activateFileViewerSelecting([store.url])
+        } else {
+            NSWorkspace.shared.open(store.url.deletingLastPathComponent())
         }
     }
 
@@ -245,7 +265,7 @@ final class AppState {
         camera.setPupilDarkFraction(settings.pupilDarkFraction)
 
         let face = output.frame.face
-        let features = face.flatMap { GazeFeatures.make(from: $0, locator: settings.pupilLocator) }
+        let features = face.flatMap { GazeFeatures.make(from: $0, imageSize: output.frame.imageSize, locator: settings.pupilLocator) }
         lastFeatures = features
 
         if let session = calibrationSession {

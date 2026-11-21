@@ -50,38 +50,57 @@ final class DarkCentroidTests: XCTestCase {
 }
 
 final class GazeFeaturesTests: XCTestCase {
-    func testRelativePupilPosition() {
-        let box = CGRect(x: 0.4, y: 0.5, width: 0.1, height: 0.04)
-        let r = GazeFeatures.relative(CGPoint(x: 0.425, y: 0.53), in: box)
-        XCTAssertEqual(r.x, 0.25, accuracy: 1e-9)
-        XCTAssertEqual(r.y, 0.75, accuracy: 1e-9)
-        XCTAssertEqual(GazeFeatures.relative(.zero, in: .zero), CGPoint(x: 0.5, y: 0.5))
+    func testCornersAreFarthestPairLeftFirst() throws {
+        let contour = [CGPoint(x: 10, y: 0), CGPoint(x: 5, y: 2), CGPoint(x: 0, y: 0), CGPoint(x: 5, y: -2)]
+        let (a, b) = try XCTUnwrap(GazeFeatures.corners(of: contour))
+        XCTAssertEqual(a, CGPoint(x: 0, y: 0))
+        XCTAssertEqual(b, CGPoint(x: 10, y: 0))
+        XCTAssertNil(GazeFeatures.corners(of: [CGPoint.zero]))
+    }
+
+    func testPositionInEyeFrame() {
+        let a = CGPoint(x: 0, y: 0), b = CGPoint(x: 10, y: 0)
+        let p = GazeFeatures.position(of: CGPoint(x: 3, y: 1), cornerA: a, cornerB: b)
+        XCTAssertEqual(p.x, 0.3, accuracy: 1e-12)
+        XCTAssertEqual(p.y, 0.1, accuracy: 1e-12)
+        // Œil penché (roulis 90°) : même position relative.
+        let r = GazeFeatures.position(of: CGPoint(x: -1, y: 3), cornerA: a, cornerB: CGPoint(x: 0, y: 10))
+        XCTAssertEqual(r.x, 0.3, accuracy: 1e-12)
+        XCTAssertEqual(r.y, 0.1, accuracy: 1e-12)
+    }
+
+    /// Œil horizontal de 100 × 30 px dans une image 1000 × 1000 (coordonnées Vision).
+    private func eye(pupilX: Double, pupilY: Double) -> EyeMeasurement {
+        let contour = [CGPoint(x: 0.40, y: 0.50), CGPoint(x: 0.45, y: 0.515), CGPoint(x: 0.50, y: 0.50), CGPoint(x: 0.45, y: 0.485)]
+        return EyeMeasurement(contour: contour, box: FaceGeometry.boundingBox(of: contour), openness: 0.3,
+                              visionPupil: CGPoint(x: 0.45, y: 0.50),
+                              imagePupil: CGPoint(x: pupilX, y: pupilY))
     }
 
     func testMakeUsesChosenLocatorAndNeedsBothPupils() throws {
-        let leftBox = CGRect(x: 0.4, y: 0.5, width: 0.1, height: 0.04)
-        let rightBox = CGRect(x: 0.6, y: 0.5, width: 0.1, height: 0.04)
-        let left = EyeMeasurement(contour: [], box: leftBox, openness: 0.3,
-                                  visionPupil: CGPoint(x: 0.45, y: 0.52), imagePupil: CGPoint(x: 0.41, y: 0.52))
-        var right = EyeMeasurement(contour: [], box: rightBox, openness: 0.3,
-                                   visionPupil: CGPoint(x: 0.65, y: 0.52), imagePupil: CGPoint(x: 0.61, y: 0.52))
+        let size = CGSize(width: 1000, height: 1000)
         var face = FaceMeasurement(boundingBox: CGRect(x: 0.3, y: 0.3, width: 0.4, height: 0.5),
                                    faceConfidence: 1, landmarksConfidence: 1, yaw: 0.1, pitch: -0.2, roll: 0.05,
-                                   regions: [], leftEye: left, rightEye: right)
+                                   regions: [], leftEye: eye(pupilX: 0.42, pupilY: 0.505),
+                                   rightEye: eye(pupilX: 0.42, pupilY: 0.505))
 
-        let vision = try XCTUnwrap(GazeFeatures.make(from: face, locator: .vision))
+        let vision = try XCTUnwrap(GazeFeatures.make(from: face, imageSize: size, locator: .vision))
         XCTAssertEqual(vision.leftPupilX, 0.5, accuracy: 1e-9)
-        let image = try XCTUnwrap(GazeFeatures.make(from: face, locator: .image))
-        XCTAssertEqual(image.leftPupilX, 0.1, accuracy: 1e-9)
+        XCTAssertEqual(vision.leftPupilY, 0, accuracy: 1e-9)
+        let image = try XCTUnwrap(GazeFeatures.make(from: face, imageSize: size, locator: .image))
+        XCTAssertEqual(image.leftPupilX, 0.2, accuracy: 1e-9)
+        XCTAssertEqual(image.leftPupilY, 0.05, accuracy: 1e-9)   // 5 px au-dessus, œil de 100 px
+        XCTAssertEqual(image.aperture, 0.3, accuracy: 1e-9)      // 30 px / 100 px
         XCTAssertEqual(image.yaw, 0.1)
         XCTAssertEqual(image.faceCenterX, 0.5, accuracy: 1e-9)
         XCTAssertEqual(image.faceSize, 0.4, accuracy: 1e-9)
         XCTAssertEqual(image.vector.count, GazeFeatures.count)
 
+        var right = eye(pupilX: 0.42, pupilY: 0.505)
         right.imagePupil = nil
         face.rightEye = right
-        XCTAssertNil(GazeFeatures.make(from: face, locator: .image))
-        XCTAssertNotNil(GazeFeatures.make(from: face, locator: .vision))
+        XCTAssertNil(GazeFeatures.make(from: face, imageSize: size, locator: .image))
+        XCTAssertNotNil(GazeFeatures.make(from: face, imageSize: size, locator: .vision))
     }
 }
 
@@ -92,13 +111,20 @@ final class CalibrationPlanTests: XCTestCase {
         XCTAssertEqual(Set(grid.map(\.x)), [0.08, 0.5, 0.92])
         XCTAssertEqual(Set(grid.map(\.y)), [0.08, 0.5, 0.92])
         var g = SystemRandomNumberGenerator()
-        let shuffled = CalibrationPlan.calibrationPoints(using: &g)
+        let shuffled = CalibrationPlan().calibrationPoints(using: &g)
         XCTAssertEqual(Set(shuffled.map { "\($0.x),\($0.y)" }), Set(grid.map { "\($0.x),\($0.y)" }))
         XCTAssertEqual(CalibrationPlan.validationPoints.count, 5)
+
+        var plan = CalibrationPlan()
+        plan.gridSize = 4
+        let four = plan.calibrationPoints(using: &g)
+        XCTAssertEqual(four.count, 16)
+        XCTAssertEqual(four.map(\.x).min(), 0.08)
+        XCTAssertEqual(four.map(\.x).max(), 0.92)
     }
 
     private func sample(_ elapsed: Double, pupil: Double = 0.5, openness: Double = 0.3) -> CalibrationPlan.TimedSample {
-        let f = GazeFeatures(leftPupilX: pupil, leftPupilY: 0.5, rightPupilX: pupil, rightPupilY: 0.5,
+        let f = GazeFeatures(leftPupilX: pupil, leftPupilY: 0.5, rightPupilX: pupil, rightPupilY: 0.5, aperture: 0.3,
                              yaw: 0, pitch: 0, roll: 0, faceCenterX: 0.5, faceCenterY: 0.5, faceSize: 0.3)
         return .init(elapsed: elapsed, features: f, openness: openness)
     }

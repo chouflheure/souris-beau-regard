@@ -2,6 +2,8 @@ import CoreGraphics
 
 /// Déroulé de la calibration : positions des points, durées, tri des mesures. Logique pure.
 struct CalibrationPlan: Sendable, Equatable {
+    /// Taille de la grille de calibration (3 → 9 points, 4 → 16, 5 → 25).
+    var gridSize = 3
     /// Durée d'affichage de chaque point (il rétrécit pendant ce temps).
     var pointDuration: Double = 1.5
     /// Fenêtre de mesures gardées, en secondes depuis l'apparition du point.
@@ -15,11 +17,17 @@ struct CalibrationPlan: Sendable, Equatable {
     /// Marge des points de calibration, en fraction de l'écran.
     static let margin: CGFloat = 0.08
 
-    /// Grille 3×3 à 8 % des bords, en coordonnées normalisées (0…1, origine haut-gauche).
-    static var calibrationGrid: [CGPoint] {
-        let values: [CGFloat] = [margin, 0.5, 1 - margin]
+    /// Grille n×n régulière entre les marges de 8 %, en coordonnées normalisées (0…1, origine haut-gauche).
+    static func grid(size: Int) -> [CGPoint] {
+        let n = max(size, 2)
+        let values: [CGFloat] = (0..<n).map { i in
+            i == n - 1 ? 1 - margin : margin + (1 - 2 * margin) * CGFloat(i) / CGFloat(n - 1)
+        }
         return values.flatMap { y in values.map { x in CGPoint(x: x, y: y) } }
     }
+
+    /// Grille 3×3 du cahier des charges.
+    static var calibrationGrid: [CGPoint] { grid(size: 3) }
 
     /// 5 points de validation : centre et quatre points intermédiaires (différents de la grille).
     static let validationPoints: [CGPoint] = [
@@ -30,8 +38,8 @@ struct CalibrationPlan: Sendable, Equatable {
         CGPoint(x: 0.73, y: 0.72),
     ]
 
-    static func calibrationPoints<G: RandomNumberGenerator>(using generator: inout G) -> [CGPoint] {
-        calibrationGrid.shuffled(using: &generator)
+    func calibrationPoints<G: RandomNumberGenerator>(using generator: inout G) -> [CGPoint] {
+        Self.grid(size: gridSize).shuffled(using: &generator)
     }
 
     /// Une mesure brute horodatée depuis l'apparition du point.
@@ -48,8 +56,8 @@ struct CalibrationPlan: Sendable, Equatable {
         }
         guard inWindow.count >= 3 else { return inWindow.map(\.features) }
 
-        let pupils = inWindow.map { Array($0.features.vector.prefix(GazeFeatures.polynomialCount)) }
-        let medians = (0..<GazeFeatures.polynomialCount).map { k in Stats.median(pupils.map { $0[k] }) }
+        let pupils = inWindow.map { Array($0.features.vector.prefix(GazeFeatures.pupilCount)) }
+        let medians = (0..<GazeFeatures.pupilCount).map { k in Stats.median(pupils.map { $0[k] }) }
         let distances = pupils.map { p in
             zip(p, medians).map { ($0 - $1) * ($0 - $1) }.reduce(0, +).squareRoot()
         }
