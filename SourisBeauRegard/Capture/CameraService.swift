@@ -18,10 +18,19 @@ struct PreviewImage: @unchecked Sendable {
     let cgImage: CGImage
 }
 
+/// Recadrage d'un œil en pleine résolution, pour le débogage.
+struct EyePreview: Sendable {
+    let image: PreviewImage
+    /// Zone recadrée, normalisée Vision (origine bas-gauche).
+    let region: CGRect
+}
+
 /// Ce que la caméra publie à chaque image.
 struct CameraOutput: Sendable {
     var frame: FaceFrame
     var preview: PreviewImage?
+    /// Yeux gauche et droit (de l'image) agrandis, si l'aperçu est actif.
+    var eyePreviews: [EyePreview] = []
     var fps: Double
 }
 
@@ -53,7 +62,7 @@ final class CameraService: NSObject, @unchecked Sendable, AVCaptureVideoDataOutp
 
     private struct Shared: Sendable {
         var previewEnabled = false
-        var pupilDarkFraction = 0.12
+        var irisFraction = 0.3
         var handler: (@Sendable (CameraOutput) -> Void)?
     }
 
@@ -83,8 +92,8 @@ final class CameraService: NSObject, @unchecked Sendable, AVCaptureVideoDataOutp
         shared.withLock { $0.previewEnabled = enabled }
     }
 
-    func setPupilDarkFraction(_ fraction: Double) {
-        shared.withLock { $0.pupilDarkFraction = fraction }
+    func setIrisFraction(_ fraction: Double) {
+        shared.withLock { $0.irisFraction = fraction }
     }
 
     /// Configure (la première fois) et démarre la capture. L'autorisation caméra doit être accordée.
@@ -248,7 +257,7 @@ final class CameraService: NSObject, @unchecked Sendable, AVCaptureVideoDataOutp
         let start = DispatchTime.now().uptimeNanoseconds
         var face = analyzer.analyze(pixelBuffer: pixelBuffer)
         // Les deux PupilLocator tournent à chaque image, pour pouvoir les comparer.
-        imagePupilLocator.darkFraction = state.pupilDarkFraction
+        imagePupilLocator.irisFraction = state.irisFraction
         if var f = face {
             for keyPath in [\FaceMeasurement.leftEye, \FaceMeasurement.rightEye] {
                 guard var eye = f[keyPath: keyPath] else { continue }
@@ -269,7 +278,13 @@ final class CameraService: NSObject, @unchecked Sendable, AVCaptureVideoDataOutp
 
         // L'aperçu n'est fabriqué que si la fenêtre de débogage est ouverte. Jamais écrit sur disque.
         let preview = state.previewEnabled ? makePreview(pixelBuffer) : nil
-        handler(CameraOutput(frame: frame, preview: preview, fps: smoothedFPS))
+        var eyes: [EyePreview] = []
+        if state.previewEnabled, let face {
+            eyes = [face.leftEye, face.rightEye].compactMap { eye in
+                eye.flatMap { makeEyePreview(pixelBuffer, box: $0.box) }
+            }
+        }
+        handler(CameraOutput(frame: frame, preview: preview, eyePreviews: eyes, fps: smoothedFPS))
     }
 
     private func updateFPS(timestamp: Double) {
@@ -277,6 +292,21 @@ final class CameraService: NSObject, @unchecked Sendable, AVCaptureVideoDataOutp
         guard let last = lastFrameTime, timestamp > last else { return }
         let instant = 1 / (timestamp - last)
         smoothedFPS = smoothedFPS == 0 ? instant : smoothedFPS * 0.9 + instant * 0.1
+    }
+
+    /// Zone autour de l'œil (2 × sa largeur, 4 × sa hauteur), en pleine résolution.
+    private func makeEyePreview(_ pixelBuffer: CVPixelBuffer, box: CGRect) -> EyePreview? {
+        let image = CIImage(cvPixelBuffer: pixelBuffer)
+        let w = image.extent.width, h = image.extent.height
+        // CIImage a son origine en bas à gauche, comme Vision : pas de retournement.
+        let eye = CGRect(x: box.minX * w, y: box.minY * h, width: box.width * w, height: box.height * h)
+        let side = max(eye.width * 2, eye.height * 4)
+        let rect = CGRect(x: eye.midX - side / 2, y: eye.midY - side / 4, width: side, height: side / 2)
+            .integral.intersection(image.extent)
+        guard !rect.isNull, rect.width >= 4, rect.height >= 4,
+              let cg = ciContext.createCGImage(image, from: rect) else { return nil }
+        let region = CGRect(x: rect.minX / w, y: rect.minY / h, width: rect.width / w, height: rect.height / h)
+        return EyePreview(image: PreviewImage(cgImage: cg), region: region)
     }
 
     private func makePreview(_ pixelBuffer: CVPixelBuffer) -> PreviewImage? {

@@ -7,10 +7,13 @@ struct DebugView: View {
     var body: some View {
         @Bindable var settings = appState.settings
         HStack(alignment: .top, spacing: 0) {
-            CameraPreview(image: appState.previewImage,
-                          frame: appState.lastFrame,
-                          mirrored: settings.mirrorPreview)
-                .frame(minWidth: 560, minHeight: 360)
+            VStack(spacing: 0) {
+                CameraPreview(image: appState.previewImage,
+                              frame: appState.lastFrame,
+                              mirrored: settings.mirrorPreview)
+                    .frame(minWidth: 560, minHeight: 360)
+                EyeZoomRow(previews: appState.eyePreviews, face: appState.lastFrame?.face)
+            }
 
             Divider()
 
@@ -57,6 +60,64 @@ private struct CameraPreview: View {
                 FaceOverlay(face: face, imageSize: frame.imageSize, mirrored: mirrored)
             }
         }
+    }
+}
+
+/// Les deux yeux agrandis (pleine résolution, non retournés), avec contour, pupille Vision (point
+/// rouge) et pupille image (croix rose) : pour vérifier que la croix est bien sur la pupille.
+private struct EyeZoomRow: View {
+    let previews: [EyePreview]
+    let face: FaceMeasurement?
+
+    var body: some View {
+        HStack(spacing: 8) {
+            let eyes = [face?.leftEye, face?.rightEye]
+            ForEach(Array(previews.prefix(2).enumerated()), id: \.offset) { index, preview in
+                EyeZoom(preview: preview, eye: index < eyes.count ? eyes[index] : nil)
+            }
+            if previews.isEmpty {
+                Text("Yeux agrandis : en attente d'un visage").foregroundStyle(.secondary).font(.caption)
+                    .frame(maxWidth: .infinity, minHeight: 120)
+            }
+        }
+        .padding(8)
+        .background(Color.black)
+    }
+}
+
+private struct EyeZoom: View {
+    let preview: EyePreview
+    let eye: EyeMeasurement?
+
+    var body: some View {
+        Image(decorative: preview.image.cgImage, scale: 1)
+            .resizable()
+            .interpolation(.none)
+            .aspectRatio(contentMode: .fit)
+            .overlay {
+                Canvas { context, size in
+                    guard let eye else { return }
+                    let r = preview.region
+                    func toView(_ p: CGPoint) -> CGPoint {
+                        CGPoint(x: (p.x - r.minX) / r.width * size.width,
+                                y: (1 - (p.y - r.minY) / r.height) * size.height)
+                    }
+                    var contour = Path()
+                    contour.addLines(eye.contour.map(toView))
+                    contour.closeSubpath()
+                    context.stroke(contour, with: .color(.yellow.opacity(0.8)), lineWidth: 1)
+                    if let v = eye.visionPupil.map(toView) {
+                        context.fill(Path(ellipseIn: CGRect(x: v.x - 4, y: v.y - 4, width: 8, height: 8)), with: .color(.red))
+                    }
+                    if let p = eye.imagePupil.map(toView) {
+                        var cross = Path()
+                        cross.move(to: CGPoint(x: p.x - 8, y: p.y)); cross.addLine(to: CGPoint(x: p.x + 8, y: p.y))
+                        cross.move(to: CGPoint(x: p.x, y: p.y - 8)); cross.addLine(to: CGPoint(x: p.x, y: p.y + 8))
+                        context.stroke(cross, with: .color(.pink), lineWidth: 2)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: 140)
     }
 }
 
@@ -166,9 +227,9 @@ private struct GazeSection: View {
                 .pickerStyle(.segmented)
 
                 if settings.pupilLocator == .image {
-                    LabeledContent("Part sombre") {
-                        Slider(value: $settings.pupilDarkFraction, in: 0.03...0.4)
-                        Text(String(format: "%.2f", settings.pupilDarkFraction)).monospacedDigit()
+                    LabeledContent("Taille de l'iris") {
+                        Slider(value: $settings.irisFraction, in: 0.15...0.5)
+                        Text(String(format: "%.0f %%", settings.irisFraction * 100)).monospacedDigit()
                     }
                     .font(.callout)
                 }

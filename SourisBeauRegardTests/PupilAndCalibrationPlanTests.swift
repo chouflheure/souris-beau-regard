@@ -29,6 +29,43 @@ final class DarkCentroidTests: XCTestCase {
         XCTAssertEqual(c.y, 5.5, accuracy: 1e-9)
     }
 
+    /// Œil synthétique 50 × 20 : blanc (200), iris sombre (70) de rayon 6 centré en (25,5 ; 10,5),
+    /// pupille (25) de rayon 2, et une rangée de cils très sombres (10) en haut.
+    private func syntheticEye(withLashes: Bool = true) -> [UInt8] {
+        let w = 50, h = 20
+        var g = [UInt8](repeating: 200, count: w * h)
+        for y in 0..<h {
+            for x in 0..<w {
+                let d = hypot(Double(x) + 0.5 - 25.5, Double(y) + 0.5 - 10.5)
+                if d <= 6 { g[y * w + x] = 70 }
+                if d <= 2 { g[y * w + x] = 25 }
+            }
+        }
+        if withLashes { for y in 0...1 { for x in 5...44 { g[y * w + x] = 10 } } }
+        return g
+    }
+
+    func testIrisSearchIgnoresEyelashes() throws {
+        let g = syntheticEye()
+        let c = try XCTUnwrap(DarkCentroid.locateIris(gray: g, width: 50, height: 20, polygon: nil, boxSide: 9))
+        XCTAssertEqual(c.x, 25.5, accuracy: 1)
+        XCTAssertEqual(c.y, 10.5, accuracy: 1)
+        // L'ancienne méthode (pixels les plus sombres) est attirée par les cils.
+        let old = try XCTUnwrap(DarkCentroid.locate(gray: g, width: 50, height: 20, polygon: nil, darkFraction: 0.12))
+        XCTAssertLessThan(old.y, 5)
+    }
+
+    func testIrisSearchWithPolygonAndOffCenterIris() throws {
+        let w = 50, h = 20
+        var g = [UInt8](repeating: 200, count: w * h)
+        for y in 0..<h { for x in 0..<w where hypot(Double(x) + 0.5 - 15.5, Double(y) + 0.5 - 9.5) <= 5 { g[y * w + x] = 60 } }
+        let polygon = [CGPoint(x: 2, y: 10), CGPoint(x: 25, y: 1), CGPoint(x: 48, y: 10), CGPoint(x: 25, y: 19)]
+        let c = try XCTUnwrap(DarkCentroid.locateIris(gray: g, width: w, height: h, polygon: polygon, boxSide: 7))
+        XCTAssertEqual(c.x, 15.5, accuracy: 1)
+        XCTAssertEqual(c.y, 9.5, accuracy: 1)
+        XCTAssertNil(DarkCentroid.locateIris(gray: [1, 2], width: 2, height: 2, polygon: nil, boxSide: 2))
+    }
+
     func testRejectsInconsistentSize() {
         XCTAssertNil(DarkCentroid.locate(gray: [1, 2, 3], width: 2, height: 2, polygon: nil, darkFraction: 0.1))
     }

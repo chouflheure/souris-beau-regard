@@ -18,7 +18,7 @@ final class AppSettings {
         static let minEyeOpenness = "quality.minEyeOpenness"
         static let minFPS = "quality.minFPS"
         static let pupilLocator = "gaze.pupilLocator"
-        static let pupilDarkFraction = "gaze.pupilDarkFraction"
+        static let irisFraction = "gaze.irisFraction"
         static let ridgeLambda = "gaze.ridgeLambda"
         static let lambdaAuto = "gaze.lambdaAuto"
         static let modelChoice = "gaze.modelChoice"
@@ -70,9 +70,9 @@ final class AppSettings {
     var pupilLocator: PupilLocatorKind {
         didSet { defaults.set(pupilLocator.rawValue, forKey: Key.pupilLocator) }
     }
-    /// Part des pixels de l'œil retenus comme pupille par `ImagePupilLocator`.
-    var pupilDarkFraction: Double {
-        didSet { defaults.set(pupilDarkFraction, forKey: Key.pupilDarkFraction) }
+    /// Taille du carré de recherche de l'iris (`ImagePupilLocator`), en fraction de la largeur de l'œil.
+    var irisFraction: Double {
+        didSet { defaults.set(irisFraction, forKey: Key.irisFraction) }
     }
     /// Force de la régularisation ridge (λ).
     var ridgeLambda: Double {
@@ -229,7 +229,7 @@ final class AppSettings {
             Key.minEyeOpenness: 0.15,
             Key.minFPS: 25.0,
             Key.pupilLocator: PupilLocatorKind.image.rawValue,
-            Key.pupilDarkFraction: 0.12,
+            Key.irisFraction: 0.3,
             Key.ridgeLambda: 10.0,
             Key.lambdaAuto: true,
             Key.modelChoice: "auto",
@@ -261,7 +261,7 @@ final class AppSettings {
         minEyeOpenness = defaults.double(forKey: Key.minEyeOpenness)
         minFPS = defaults.double(forKey: Key.minFPS)
         pupilLocator = PupilLocatorKind(rawValue: defaults.string(forKey: Key.pupilLocator) ?? "") ?? .image
-        pupilDarkFraction = defaults.double(forKey: Key.pupilDarkFraction)
+        irisFraction = defaults.double(forKey: Key.irisFraction)
         ridgeLambda = defaults.double(forKey: Key.ridgeLambda)
         lambdaAuto = defaults.bool(forKey: Key.lambdaAuto)
         modelChoice = GazeModelKind(rawValue: defaults.string(forKey: Key.modelChoice) ?? "auto")

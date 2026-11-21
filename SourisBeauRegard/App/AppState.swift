@@ -26,6 +26,7 @@ final class AppState {
     private(set) var lastFrame: FaceFrame?
     private(set) var lastFeatures: GazeFeatures?
     private(set) var previewImage: CGImage?
+    private(set) var eyePreviews: [EyePreview] = []
     private(set) var fps: Double = 0
     private(set) var cameraInfo: CameraInfo?
     private(set) var cameraError: String?
@@ -539,8 +540,9 @@ final class AppState {
         fps = output.fps
         if let preview = output.preview, isDebugWindowOpen {
             previewImage = preview.cgImage
+            eyePreviews = output.eyePreviews
         }
-        camera.setPupilDarkFraction(settings.pupilDarkFraction)
+        camera.setIrisFraction(settings.irisFraction)
 
         let face = output.frame.face
         let features = face.flatMap { GazeFeatures.make(from: $0, imageSize: output.frame.imageSize, locator: settings.pupilLocator) }

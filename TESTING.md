@@ -243,3 +243,20 @@ un vrai changement de regard.
   la zone de l'écran où il a eu lieu (30 derniers clics gardés), le décalage global servant ailleurs.
   - [ ] Le menu affiche « Apprentissage : N clic(s) appris » ; N augmente en utilisant la souris normalement.
   - [ ] Après une dizaine de clics répartis sur l'écran, le décalage diminue dans chaque zone, coins compris.
+
+### Pupille « image » : recherche de l'iris et vue agrandie des yeux
+
+- La croix rose cherchait le centre des pixels les plus sombres de l'œil : les cils, l'ombre de la paupière
+  ou les coins de l'œil la tiraient vers le haut ou les côtés. Elle cherche maintenant **l'iris** (le carré de
+  la taille de l'iris le plus sombre en moyenne), puis la pupille à l'intérieur.
+- *Débogage* : sous l'image, les deux yeux **agrandis en pleine résolution** (non retournés), avec le contour
+  (jaune), la pupille Vision (point rouge) et la pupille image (croix rose).
+
+- [ ] Dans la vue agrandie, la croix rose est sur la pupille (ou au centre de l'iris), y compris en regardant
+      à gauche, à droite, en haut et en bas.
+- [ ] Si elle est encore décalée : *Débogage ▸ Regard ▸ Taille de l'iris* (30 % par défaut) ; noter la valeur
+      qui marche le mieux.
+- [ ] Comparer avec le point rouge : lequel suit le mieux la pupille ?
+- [ ] Recalibrer ensuite (les mesures de pupille ont changé) ; noter l'erreur obtenue.
+
+À rapporter : une capture d'écran de la vue agrandie si la croix est mal placée, et si possible avec et sans lunettes.
