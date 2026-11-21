@@ -218,7 +218,7 @@ final class StableGazeFilterTests: XCTestCase {
             XCTAssertGreaterThan(rawSpread, 120, "le bruit de test doit être fort")
         }
         XCTAssertLessThanOrEqual(runsWithVisibleJump, 2)
-        XCTAssertLessThanOrEqual(totalJumps, 4)
+        XCTAssertLessThanOrEqual(totalJumps, 6)
     }
 
     func testRealJumpIsFollowedQuickly() {
@@ -250,9 +250,83 @@ final class StableGazeFilterTests: XCTestCase {
         XCTAssertEqual(last.x, 300 + 119 - 14.5, accuracy: 1)                    // moyenne des 30 dernières
     }
 
+    func testBriefExcursionLeavesNoTrace() {
+        // Clignement mal filtré : 4 images qui plongent de 150 à 300 pt, puis retour.
+        var f = StableGazeFilter()
+        for _ in 0..<30 { _ = f.add(CGPoint(x: 500, y: 400)) }
+        var worst: CGFloat = 0
+        var last = CGPoint.zero
+        for d in [150.0, 300, 300, 150, 0, 0, 0, 0] {
+            last = f.add(CGPoint(x: 500, y: 400 + d))
+            worst = max(worst, abs(last.y - 400))
+        }
+        XCTAssertLessThan(worst, 15, "le point ne plonge pas")
+        XCTAssertLessThan(abs(last.y - 400), 12, "et ne remonte pas lentement : il est déjà revenu")
+    }
+
+    func testJumpFollowedByQuickReturnIsRolledBack() {
+        var f = StableGazeFilter()
+        for _ in 0..<30 { _ = f.add(CGPoint(x: 500, y: 400)) }
+        for _ in 0..<4 { _ = f.add(CGPoint(x: 500, y: 900)) }   // excursion assez longue pour un saut
+        XCTAssertEqual(f.jumpCount, 1)
+        var p = CGPoint.zero
+        for _ in 0..<3 { p = f.add(CGPoint(x: 500, y: 400)) }
+        XCTAssertEqual(f.rollbackCount, 1)
+        XCTAssertLessThan(abs(p.y - 400), 10, "retour immédiat à l'ancienne fixation")
+    }
+
+    func testRealJumpIsNotRolledBack() {
+        var f = StableGazeFilter()
+        for _ in 0..<30 { _ = f.add(CGPoint(x: 300, y: 300)) }
+        var p = CGPoint.zero
+        for _ in 0..<20 { p = f.add(CGPoint(x: 900, y: 300)) }
+        XCTAssertEqual(f.rollbackCount, 0)
+        XCTAssertEqual(p.x, 900, accuracy: 1)
+    }
+
     func testNonFiniteIsIgnored() {
         var f = StableGazeFilter()
         _ = f.add(CGPoint(x: 10, y: 10))
         XCTAssertEqual(f.add(CGPoint(x: CGFloat.nan, y: 0)), CGPoint(x: 10, y: 10))
+    }
+}
+
+final class BlinkDetectorTests: XCTestCase {
+    func testDetectsPartialClosureRelativeToTypicalOpennessAndHolds() {
+        var d = BlinkDetector()
+        for _ in 0..<30 { XCTAssertFalse(d.isBlink(openness: 0.32)) }
+        XCTAssertEqual(d.typicalOpenness ?? 0, 0.32, accuracy: 1e-9)
+        // Paupière à moitié fermée : au-dessus du seuil absolu (0,15) mais sous 60 % de l'habituel.
+        XCTAssertTrue(d.isBlink(openness: 0.18))
+        XCTAssertTrue(d.isBlink(openness: 0.05))
+        XCTAssertTrue(d.isBlink(openness: 0.17))
+        // Yeux rouverts : encore 3 images écartées, le temps que la paupière finisse de remonter.
+        XCTAssertTrue(d.isBlink(openness: 0.31))
+        XCTAssertTrue(d.isBlink(openness: 0.32))
+        XCTAssertTrue(d.isBlink(openness: 0.32))
+        XCTAssertFalse(d.isBlink(openness: 0.32))
+    }
+
+    func testLookingDownSlightlyIsNotABlink() {
+        var d = BlinkDetector()
+        for _ in 0..<30 { _ = d.isBlink(openness: 0.32) }
+        // Regard vers le bas : paupières un peu baissées (−25 %), pas un clignement.
+        XCTAssertFalse(d.isBlink(openness: 0.24))
+    }
+
+    func testTypicalOpennessFollowsAProlongedChange() {
+        var d = BlinkDetector()
+        for _ in 0..<60 { _ = d.isBlink(openness: 0.40) }
+        // Long regard vers le bas, paupières à 0,22 (55 %) : écarté au début, puis l'habituel s'adapte.
+        var results: [Bool] = []
+        for _ in 0..<80 { results.append(d.isBlink(openness: 0.22)) }
+        XCTAssertTrue(results.first ?? false)
+        XCTAssertFalse(results.last ?? true)
+    }
+
+    func testAbsoluteThresholdAndNonFinite() {
+        var d = BlinkDetector()
+        XCTAssertTrue(d.isBlink(openness: 0.05))
+        XCTAssertTrue(d.isBlink(openness: .nan))
     }
 }

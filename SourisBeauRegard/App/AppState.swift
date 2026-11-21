@@ -67,6 +67,7 @@ final class AppState {
     private(set) var isDebugWindowOpen = false
     @ObservationIgnored private var isCameraStarting = false
     @ObservationIgnored private var engine = GazeEngine()
+    @ObservationIgnored private var blinkDetector = BlinkDetector()
     @ObservationIgnored private var lastGazeUpdate: Double = 0
     @ObservationIgnored private var lastGazePoint: CGPoint?
     @ObservationIgnored private var lastFrameArrival: Double = 0
@@ -559,7 +560,9 @@ final class AppState {
 
         // Clignement : les pupilles sont fausses sur ces images, on garde la dernière position.
         let openness = [face?.leftEye?.openness, face?.rightEye?.openness].compactMap { $0 }.min() ?? 0
-        let isBlink = features != nil && openness < settings.minEyeOpenness
+        blinkDetector.absoluteThreshold = settings.minEyeOpenness
+        blinkDetector.relativeThreshold = settings.blinkRelativeThreshold
+        let isBlink = features != nil && blinkDetector.isBlink(openness: openness)
         let valid = features.flatMap { f -> GazeFeatures? in
             (isBlink || !f.vector.allSatisfy(\.isFinite)) ? nil : f
         }
@@ -599,7 +602,7 @@ final class AppState {
             lastGazePoint = estimate.point
         } else if now - lastGazeUpdate > Self.gazeTimeout {
             gazeLossReason = face == nil ? "Visage non détecté"
-                : isBlink ? "Yeux fermés ou mal vus (ouverture sous le seuil)"
+                : isBlink ? "Clignement, ou yeux moins ouverts que d'habitude"
                 : features == nil ? "Pupille non trouvée"
                 : "Mesure invalide"
             if gaze != nil {

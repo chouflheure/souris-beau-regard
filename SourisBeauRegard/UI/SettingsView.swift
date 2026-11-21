@@ -77,6 +77,10 @@ struct SettingsView: View {
                     Slider(value: $settings.minFaceConfidence, in: 0...1)
                     Text(String(format: "%.2f", settings.minFaceConfidence)).monospacedDigit()
                 }
+                LabeledContent("Clignement : ouverture relative (%)") {
+                    Slider(value: $settings.blinkRelativeThreshold, in: 0.4...0.95)
+                    Text(String(format: "%.0f", settings.blinkRelativeThreshold * 100)).monospacedDigit()
+                }
                 LabeledContent("Ouverture des yeux minimale") {
                     Slider(value: $settings.minEyeOpenness, in: 0...0.6)
                     Text(String(format: "%.2f", settings.minEyeOpenness)).monospacedDigit()

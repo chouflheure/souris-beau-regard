@@ -17,6 +17,7 @@ final class AppSettings {
         static let minFaceConfidence = "quality.minFaceConfidence"
         static let minEyeOpenness = "quality.minEyeOpenness"
         static let minFPS = "quality.minFPS"
+        static let blinkRelativeThreshold = "gaze.blinkRelativeThreshold"
         static let pupilLocator = "gaze.pupilLocator"
         static let irisFraction = "gaze.irisFraction"
         static let ridgeLambda = "gaze.ridgeLambda"
@@ -60,6 +61,10 @@ final class AppSettings {
     /// Ouverture (hauteur / largeur) en dessous de laquelle l'œil est considéré fermé ou mal vu.
     var minEyeOpenness: Double {
         didSet { defaults.set(minEyeOpenness, forKey: Key.minEyeOpenness) }
+    }
+    /// Clignement : ouverture sous cette fraction de l'ouverture habituelle.
+    var blinkRelativeThreshold: Double {
+        didSet { defaults.set(blinkRelativeThreshold, forKey: Key.blinkRelativeThreshold) }
     }
     /// Images par seconde minimales attendues.
     var minFPS: Double {
@@ -228,6 +233,7 @@ final class AppSettings {
             Key.minFaceConfidence: 0.5,
             Key.minEyeOpenness: 0.15,
             Key.minFPS: 25.0,
+            Key.blinkRelativeThreshold: 0.6,
             Key.pupilLocator: PupilLocatorKind.image.rawValue,
             Key.irisFraction: 0.3,
             Key.ridgeLambda: 10.0,
@@ -260,6 +266,7 @@ final class AppSettings {
         minFaceConfidence = defaults.double(forKey: Key.minFaceConfidence)
         minEyeOpenness = defaults.double(forKey: Key.minEyeOpenness)
         minFPS = defaults.double(forKey: Key.minFPS)
+        blinkRelativeThreshold = defaults.double(forKey: Key.blinkRelativeThreshold)
         pupilLocator = PupilLocatorKind(rawValue: defaults.string(forKey: Key.pupilLocator) ?? "") ?? .image
         irisFraction = defaults.double(forKey: Key.irisFraction)
         ridgeLambda = defaults.double(forKey: Key.ridgeLambda)

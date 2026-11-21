@@ -30,6 +30,17 @@ struct StableGazeFilter: Sendable, Equatable {
     private var breaches = 0
     /// Nombre de sauts détectés depuis la création (diagnostic).
     private(set) var jumpCount = 0
+    /// Images après un saut pendant lesquelles un retour vers l'ancienne fixation l'annule
+    /// (excursion brève : mesure faussée, clignement mal détecté…).
+    var rollbackFrames = 10
+    private var previousFixation: [CGPoint] = []
+    private var sinceJump: [CGPoint] = []
+    private var framesSinceJump = Int.max
+    /// Une mesure plus loin que `inlierFactor × threshold` du centre n'entre pas dans la moyenne
+    /// (tant qu'un saut n'est pas confirmé) : une excursion brève (clignement…) ne laisse pas de trace.
+    var inlierFactor = 1.0
+    /// Nombre de sauts annulés (diagnostic).
+    private(set) var rollbackCount = 0
 
     /// Bruit mesuré d'une image (écart quadratique moyen au centre de la fixation, points).
     var noise: Double? { noiseVariance.map { $0.squareRoot() } }
@@ -54,6 +65,25 @@ struct StableGazeFilter: Sendable, Equatable {
             fixation = [p]
             return p
         }
+        // Retour rapide vers la fixation d'avant le saut : le saut était une excursion, on l'annule.
+        if !previousFixation.isEmpty {
+            framesSinceJump += 1
+            sinceJump.append(p)
+            let previousCenter = Self.mean(previousFixation)
+            let back = Self.mean(Array(sinceJump.suffix(2)))
+            if framesSinceJump > rollbackFrames {
+                previousFixation = []
+            } else if sinceJump.count >= 2,
+                      Double(hypot(back.x - previousCenter.x, back.y - previousCenter.y)) <= threshold / 2 {
+                fixation = previousFixation + [p]
+                if fixation.count > memory { fixation.removeFirst(fixation.count - memory) }
+                previousFixation = []
+                recent = [p]
+                breaches = 0
+                rollbackCount += 1
+                return Self.mean(fixation)
+            }
+        }
         let center = Self.mean(fixation)
         let recentMean = Self.mean(recent)
         let gap = Double(hypot(recentMean.x - center.x, recentMean.y - center.y))
@@ -61,14 +91,21 @@ struct StableGazeFilter: Sendable, Equatable {
 
         if breaches >= confirmFrames {
             // Saut confirmé : nouvelle fixation à partir des mesures les plus récentes.
+            // L'ancienne est gardée un instant, au cas où le regard y revient aussitôt.
+            previousFixation = fixation
+            framesSinceJump = 0
+            sinceJump = []
             fixation = Array(recent.suffix(max(window / 2, 1)))
             breaches = 0
             jumpCount += 1
         } else {
             let d2 = Double((p.x - center.x) * (p.x - center.x) + (p.y - center.y) * (p.y - center.y))
+            let inlierLimit = inlierFactor * threshold
             noiseVariance = noiseVariance.map { 0.97 * $0 + 0.03 * d2 } ?? d2
-            fixation.append(p)
-            if fixation.count > memory { fixation.removeFirst(fixation.count - memory) }
+            if d2 <= inlierLimit * inlierLimit {
+                fixation.append(p)
+                if fixation.count > memory { fixation.removeFirst(fixation.count - memory) }
+            }
         }
         return Self.mean(fixation)
     }
@@ -77,5 +114,8 @@ struct StableGazeFilter: Sendable, Equatable {
         fixation = []
         recent = []
         breaches = 0
+        previousFixation = []
+        sinceJump = []
+        framesSinceJump = Int.max
     }
 }

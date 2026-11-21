@@ -260,3 +260,20 @@ un vrai changement de regard.
 - [ ] Recalibrer ensuite (les mesures de pupille ont changé) ; noter l'erreur obtenue.
 
 À rapporter : une capture d'écran de la vue agrandie si la croix est mal placée, et si possible avec et sans lunettes.
+
+### Clignements : le point ne plonge plus
+
+Cause : les images de début et de fin d'un clignement (paupière à moitié fermée) passaient le seuil fixe
+d'ouverture ; le modèle, qui a appris « paupière basse = regard vers le bas », faisait plonger le point,
+et la stabilisation mettait ensuite 2 s à « oublier » ces mesures (remontée lente).
+
+- Clignement détecté **par rapport à l'ouverture habituelle** (sous 60 % de la médiane des 2 dernières secondes),
+  plus 3 images écartées après la réouverture. Un regard prolongé vers le bas n'est pas pris pour un clignement
+  (l'ouverture habituelle s'adapte).
+- Stabilisation : une mesure trop loin du centre n'entre pas dans la moyenne tant qu'un saut n'est pas confirmé,
+  et un saut suivi d'un retour rapide (moins de 0,3 s) est annulé.
+
+- [ ] Cligner des yeux en fixant un élément : le point et le surlignage restent en place.
+- [ ] Regarder le bas de l'écran : le point y va et y reste (pas de « regard perdu »).
+- [ ] Si des clignements font encore bouger le point : *Réglages ▸ Clignement : ouverture relative* plus haut (70 %) ;
+      si le regard se perd en bas de l'écran : plus bas (50 %).
