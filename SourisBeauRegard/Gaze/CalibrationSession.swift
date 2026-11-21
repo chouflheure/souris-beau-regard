@@ -8,6 +8,8 @@ import Observation
 final class CalibrationSession {
     enum Stage: Equatable {
         case intro
+        /// Consigne de changement de position ; Espace pour continuer.
+        case poseIntro(String)
         case calibrating
         case fitting
         case validating
@@ -39,6 +41,9 @@ final class CalibrationSession {
     @ObservationIgnored var onFinish: (@MainActor (CalibrationModel?) -> Void)?
     @ObservationIgnored private var samples: [CalibrationPlan.TimedSample] = []
     @ObservationIgnored private var task: Task<Void, Never>?
+    @ObservationIgnored private var poseContinuation: CheckedContinuation<Bool, Never>?
+    /// Libellé de la position en cours (« position habituelle », « position 2/5 »…).
+    private(set) var poseLabel = ""
 
     init(screenFrame: CGRect, plan: CalibrationPlan, pupilLocator: PupilLocatorKind,
          kind: GazeModelKind?, lambda: Double?, trainOnValidation: Bool) {
@@ -62,6 +67,7 @@ final class CalibrationSession {
     }
 
     func restart() {
+        resumePose(false)
         task?.cancel()
         task = nil
         model = nil
@@ -71,9 +77,27 @@ final class CalibrationSession {
     }
 
     func cancel() {
+        resumePose(false)
         task?.cancel()
         task = nil
         onFinish?(nil)
+    }
+
+    /// Espace pendant une consigne de position.
+    func proceed() {
+        resumePose(true)
+    }
+
+    private func resumePose(_ value: Bool) {
+        poseContinuation?.resume(returning: value)
+        poseContinuation = nil
+    }
+
+    /// Affiche une consigne et attend Espace ; `false` si annulé.
+    private func waitForPose(_ text: String) async -> Bool {
+        currentPoint = nil
+        stage = .poseIntro(text)
+        return await withCheckedContinuation { poseContinuation = $0 }
     }
 
     func accept() {
@@ -97,13 +121,33 @@ final class CalibrationSession {
         var generator = SystemRandomNumberGenerator()
         let points = plan.calibrationPoints(using: &generator)
 
+        let poses = plan.poses
+        let poseCount = poses.count + 1
         stage = .calibrating
+        poseLabel = poseCount > 1 ? "Position habituelle (1/\(poseCount))" : ""
         var calibration: [CalibrationSample] = []
         for (i, p) in points.enumerated() {
             guard let kept = await collect(at: p, index: i, count: points.count) else { return }
             let target = CoordinateSpaces.normalizedToQuartz(p, screenFrameQuartz: screenFrame)
             calibration += kept.map { CalibrationSample(features: $0, target: target) }
         }
+
+        // Positions de tête supplémentaires, grille 3×3 chacune.
+        for (k, instruction) in poses.enumerated() {
+            guard await waitForPose(instruction) else { return }
+            stage = .calibrating
+            poseLabel = "Position \(k + 2)/\(poseCount)"
+            let posePoints = CalibrationPlan.grid(size: 3).shuffled(using: &generator)
+            for (i, p) in posePoints.enumerated() {
+                guard let kept = await collect(at: p, index: i, count: posePoints.count) else { return }
+                let target = CoordinateSpaces.normalizedToQuartz(p, screenFrameQuartz: screenFrame)
+                calibration += kept.map { CalibrationSample(features: $0, target: target) }
+            }
+        }
+        if !poses.isEmpty {
+            guard await waitForPose("Revenez à votre position habituelle pour la vérification.") else { return }
+        }
+        poseLabel = ""
 
         stage = .fitting
         currentPoint = nil

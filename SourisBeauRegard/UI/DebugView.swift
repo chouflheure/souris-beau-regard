@@ -181,6 +181,17 @@ private struct GazeSection: View {
                         .font(.callout)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                if let calibration = appState.calibration {
+                    HStack {
+                        ValueRow("Décalage (recentrage)", String(format: "%.0f, %.0f pt", calibration.offset.x, calibration.offset.y))
+                        if calibration.offset != .zero {
+                            Button("Effacer") { appState.clearRecenterOffset() }.controlSize(.small)
+                        }
+                    }
+                }
+                if let message = appState.recenterMessage {
+                    Text(message).font(.callout).foregroundStyle(.secondary)
+                }
                 ValueRow("Bruit du regard (1 s)", appState.gazeSpread.map { String(format: "%.0f pt", $0) } ?? "—")
                 ValueRow("Relances caméra", "\(appState.cameraRestarts)")
                 if let gaze = appState.gaze {

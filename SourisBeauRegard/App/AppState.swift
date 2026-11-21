@@ -40,6 +40,12 @@ final class AppState {
     private(set) var gazeSpread: Double?
     /// Nombre de relances automatiques de la caméra (image figée).
     private(set) var cameraRestarts = 0
+    /// Recentrage en cours.
+    private(set) var isRecentering = false
+    /// Résultat du dernier recentrage, pour l'affichage.
+    private(set) var recenterMessage: String?
+    /// Le raccourci de recentrage a pu être enregistré.
+    private(set) var recenterShortcutAvailable = false
     private(set) var calibrationSaveError: String?
 
     private(set) var isDebugWindowOpen = false
@@ -50,6 +56,8 @@ final class AppState {
     @ObservationIgnored private var lastFrameArrival: Double = 0
     @ObservationIgnored private var watchdogTask: Task<Void, Never>?
     @ObservationIgnored private var screenObserver: (any NSObjectProtocol)?
+    @ObservationIgnored private var recenterStart: Double = 0
+    @ObservationIgnored private var recenterSamples: [CGPoint] = []
     @ObservationIgnored private var saveTask: Task<Void, Never>?
 
     /// Vrai pendant les tests unitaires (l'app hôte ne doit alors rien ouvrir).
@@ -107,6 +115,9 @@ final class AppState {
         permissions.refresh()
         calibration = store.load()
         startWatchdogs()
+        recenterShortcutAvailable = GlobalHotKeys.shared.register(GlobalHotKeys.recenter) { [weak self] in
+            self?.recenter()
+        }
         if !permissions.allRequiredGranted || !settings.hasCompletedOnboarding {
             showOnboarding()
         }
@@ -167,6 +178,58 @@ final class AppState {
         } else {
             overlay.hide()
         }
+    }
+
+    // MARK: - Recentrage
+
+    /// Durée d'affichage du point de recentrage et fenêtre de mesures gardées (s).
+    private static let recenterDuration = 1.5
+    private static let recenterWindow: ClosedRange<Double> = 0.5...1.5
+
+    /// Affiche un point au centre de l'écran calibré ; l'écart entre ce point et le regard mesuré
+    /// devient un décalage ajouté aux prédictions, jusqu'à la prochaine calibration.
+    func recenter() {
+        guard isTrackingActive, let calibration, !isRecentering else {
+            recenterMessage = calibration == nil ? "Calibrez d'abord." : recenterMessage
+            return
+        }
+        if !overlay.isVisible, let screen = ScreenGeometry.screen(matchingQuartzFrame: calibration.screenFrame) {
+            overlay.show(on: screen)
+        }
+        isRecentering = true
+        recenterSamples = []
+        recenterStart = ProcessInfo.processInfo.systemUptime
+        overlay.showRecenterTarget(CGPoint(x: calibration.screenFrame.midX, y: calibration.screenFrame.midY))
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(Self.recenterDuration))
+            self?.finishRecenter()
+        }
+    }
+
+    private func finishRecenter() {
+        isRecentering = false
+        overlay.showRecenterTarget(nil)
+        updateOverlay()
+        guard var model = calibration, recenterSamples.count >= 5 else {
+            recenterMessage = "Recentrage impossible : regard non mesuré (visage bien visible ?)."
+            return
+        }
+        let measured = CGPoint(x: Stats.median(recenterSamples.map { Double($0.x) }),
+                               y: Stats.median(recenterSamples.map { Double($0.y) }))
+        model.offset = CGPoint(x: model.screenFrame.midX - measured.x, y: model.screenFrame.midY - measured.y)
+        calibration = model
+        engine.reset()
+        recenterMessage = String(format: "Décalage corrigé : %.0f, %.0f pt", model.offset.x, model.offset.y)
+        saveCalibration(immediately: true)
+    }
+
+    func clearRecenterOffset() {
+        guard var model = calibration else { return }
+        model.offset = .zero
+        calibration = model
+        engine.reset()
+        recenterMessage = nil
+        saveCalibration(immediately: true)
     }
 
     // MARK: - Calibration
@@ -332,6 +395,12 @@ final class AppState {
         let isBlink = features != nil && openness < settings.minEyeOpenness
         let valid = features.flatMap { f -> GazeFeatures? in
             (isBlink || !f.vector.allSatisfy(\.isFinite)) ? nil : f
+        }
+
+        if isRecentering, let valid {
+            let elapsed = now - recenterStart
+            let p = model.predictUncorrected(valid)
+            if Self.recenterWindow.contains(elapsed), GazeEngine.isFinite(p) { recenterSamples.append(p) }
         }
 
         var estimate: GazeEstimate?

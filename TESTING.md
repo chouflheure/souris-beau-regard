@@ -121,3 +121,27 @@ sans revenir (valeur NaN qui bloquait les filtres, panneau retiré par le systè
       fixation 0,15 s / 120 pt.
 
 À rapporter : bruit du regard, fréquence du gris ou du rouge et la raison affichée.
+
+### Étape 2 quater — Déplacements de la tête
+
+Une calibration à une seule position ne sait pas distinguer « l'œil tourne parce que je regarde ailleurs »
+de « l'œil tourne parce que ma tête s'est déplacée ». Trois parades :
+- **calibration en plusieurs positions** (Réglages ▸ Regard ▸ *Autres positions de la tête*, 2 par défaut) :
+  après la grille principale, l'app demande de se décaler (gauche, droite, puis arrière, avant) et montre
+  9 points à chaque fois ; le modèle « + tête » apprend alors à corriger ces déplacements ;
+- **position de la tête mesurée par les coins des yeux** (bien plus stable que la boîte du visage) ;
+- **recentrage** : ⌃⌥R (ou menu ▸ *Recentrer*) affiche un point cyan au centre ; le regarder 1,5 s
+  corrige le décalage.
+
+L'ancienne calibration n'est plus lue : **recalibrer**.
+
+- [ ] La calibration enchaîne : grille principale, « Changement de position » (Espace), 9 points,
+      etc., puis « Revenez à votre position habituelle », puis les 5 points de vérification.
+- [ ] Le modèle choisi est de préférence « Deux yeux moyennés + tête » (affiché sur l'écran de résultat).
+- [ ] Après la calibration, se décaler d'une dizaine de centimètres : le point doit rester à peu près juste
+      (comparer avec une calibration sans autre position : Réglages ▸ *Aucune*).
+- [ ] ⌃⌥R depuis n'importe quelle app : point cyan au centre 1,5 s, puis le point de regard est recalé ;
+      *Débogage ▸ Décalage (recentrage)* affiche la correction ; *Effacer* la retire.
+- [ ] Le raccourci ⌃⌥R n'est pas tapé dans l'app active.
+
+À rapporter : erreur de validation, modèle choisi, et si le point reste juste après un déplacement.

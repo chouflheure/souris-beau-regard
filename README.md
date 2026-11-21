@@ -70,6 +70,10 @@ puis relancer l'app et réautoriser.
 4. L'erreur moyenne et maximale s'affiche en points écran (objectif : moins de 150).
    **Entrée** garde la calibration, **R** recommence, **Échap** annule.
 
+Par défaut, la calibration demande aussi 2 autres positions de la tête (décalé à gauche, à droite ;
+jusqu'à 4 avec arrière et avant) : le modèle apprend ainsi à corriger les déplacements sur la chaise.
+Après un déplacement, **⌃⌥R** (ou menu ▸ *Recentrer*) : regarder le point cyan au centre 1,5 s recale le regard.
+
 Le modèle (deux yeux moyennés, + tête, ou complet) et λ sont choisis automatiquement par
 validation croisée ; on peut les imposer dans les réglages, comme le nombre de points (9, 16 ou 25).
 

@@ -20,6 +20,8 @@ enum GazeDisplayStatus: Sendable, Equatable {
 final class OverlayModel {
     var gazePoint: CGPoint?
     var status: GazeDisplayStatus = .tracking
+    /// Point à regarder pendant un recentrage (coordonnées de la vue).
+    var recenterTarget: CGPoint?
 }
 
 /// Fenêtre transparente au-dessus de tout, sur tous les bureaux et en plein écran,
@@ -71,6 +73,13 @@ final class OverlayWindowController {
     }
 
     /// `point` en coordonnées Quartz globales.
+    /// `point` en coordonnées Quartz globales ; `nil` pour l'effacer.
+    func showRecenterTarget(_ point: CGPoint?) {
+        model.recenterTarget = point.map {
+            CGPoint(x: $0.x - screenFrameQuartz.minX, y: $0.y - screenFrameQuartz.minY)
+        }
+    }
+
     func update(gaze point: CGPoint?, status: GazeDisplayStatus) {
         model.gazePoint = point.map {
             CGPoint(x: $0.x - screenFrameQuartz.minX, y: $0.y - screenFrameQuartz.minY)
@@ -84,6 +93,14 @@ private struct OverlayView: View {
 
     var body: some View {
         Canvas { context, _ in
+            if let t = model.recenterTarget {
+                let ring = Path(ellipseIn: CGRect(x: t.x - 20, y: t.y - 20, width: 40, height: 40))
+                context.fill(ring, with: .color(.cyan.opacity(0.2)))
+                context.stroke(ring, with: .color(.cyan), lineWidth: 3)
+                context.fill(Path(ellipseIn: CGRect(x: t.x - 4, y: t.y - 4, width: 8, height: 8)), with: .color(.cyan))
+                context.draw(Text("Regardez ce point").font(.headline).foregroundStyle(Color.cyan),
+                             at: CGPoint(x: t.x, y: t.y + 40))
+            }
             guard let p = model.gazePoint else { return }
             let r: CGFloat = 14
             let circle = Path(ellipseIn: CGRect(x: p.x - r, y: p.y - r, width: 2 * r, height: 2 * r))

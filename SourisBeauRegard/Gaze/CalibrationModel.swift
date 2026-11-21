@@ -25,7 +25,7 @@ struct ValidationResult: Codable, Sendable, Equatable {
 /// Les mesures brutes sont gardées : changer de modèle ou de λ refait l'apprentissage et la
 /// validation sans recalibrer.
 struct CalibrationModel: Codable, Sendable, Equatable {
-    static let currentVersion = 2
+    static let currentVersion = 3
 
     var version = CalibrationModel.currentVersion
     var createdAt: Date

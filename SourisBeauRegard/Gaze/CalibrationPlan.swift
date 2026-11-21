@@ -4,6 +4,19 @@ import CoreGraphics
 struct CalibrationPlan: Sendable, Equatable {
     /// Taille de la grille de calibration (3 → 9 points, 4 → 16, 5 → 25).
     var gridSize = 3
+    /// Positions de tête supplémentaires (0…4), chacune avec une grille 3×3 : le modèle apprend
+    /// ainsi à corriger les déplacements de la tête au lieu de les prendre pour un regard ailleurs.
+    var extraPoses = 0
+
+    /// Consignes des positions supplémentaires, dans l'ordre.
+    static let poseInstructions = [
+        "Décalez-vous d'environ 10 cm vers la gauche, en gardant le visage face à l'écran.",
+        "Décalez-vous d'environ 10 cm vers la droite.",
+        "Reculez d'environ 10 cm.",
+        "Approchez-vous d'environ 10 cm.",
+    ]
+
+    var poses: [String] { Array(Self.poseInstructions.prefix(min(max(extraPoses, 0), Self.poseInstructions.count))) }
     /// Durée d'affichage de chaque point (il rétrécit pendant ce temps).
     var pointDuration: Double = 1.5
     /// Fenêtre de mesures gardées, en secondes depuis l'apparition du point.

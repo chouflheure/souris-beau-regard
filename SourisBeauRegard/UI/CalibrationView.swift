@@ -40,6 +40,7 @@ final class CalibrationWindowController {
             switch event.keyCode {
             case 49: // Espace
                 if session.stage == .intro { session.begin(); return true }
+                if case .poseIntro = session.stage { session.proceed(); return true }
                 if case .result = session.stage { session.accept(); return true }
                 return true
             case 36, 76: // Entrée
@@ -82,7 +83,9 @@ struct CalibrationView: View {
                 case .intro:
                     message(title: "Calibration",
                             lines: ["Asseyez-vous à 50–70 cm, visage bien éclairé, et gardez la tête immobile.",
-                                    "Suivez des yeux chaque point jusqu'à ce qu'il disparaisse : 9 points, puis 5 de vérification.",
+                                    "Suivez des yeux chaque point jusqu'à ce qu'il disparaisse : \(session.plan.gridSize * session.plan.gridSize) points"
+                                        + (session.plan.poses.isEmpty ? "" : ", puis 9 points dans \(session.plan.poses.count) autre(s) position(s) de la tête")
+                                        + ", puis 5 de vérification.",
                                     "Espace pour commencer · Échap pour annuler"])
                 case .calibrating, .validating:
                     if let p = session.currentPoint {
@@ -97,6 +100,11 @@ struct CalibrationView: View {
                             .foregroundStyle(.white.opacity(0.35))
                             .padding(.bottom, 24)
                     }
+                case .poseIntro(let instruction):
+                    message(title: "Changement de position",
+                            lines: [instruction,
+                                    "Puis regardez à nouveau chaque point.",
+                                    "Espace pour continuer · Échap pour annuler"])
                 case .fitting:
                     message(title: "Calcul…", lines: [])
                 case .result(let result):
@@ -114,7 +122,8 @@ struct CalibrationView: View {
 
     private var progressText: String {
         let phase = session.stage == .validating ? "Vérification" : "Calibration"
-        return "\(phase) \(session.pointIndex + 1)/\(session.pointCount) · mesures : \(session.currentSampleCount)"
+        let pose = session.poseLabel.isEmpty ? "" : "\(session.poseLabel) · "
+        return "\(pose)\(phase) \(session.pointIndex + 1)/\(session.pointCount) · mesures : \(session.currentSampleCount)"
     }
 
     @ViewBuilder

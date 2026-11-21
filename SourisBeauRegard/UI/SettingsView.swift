@@ -83,6 +83,11 @@ struct ModelControls: View {
                 Text("16 (4 × 4)").tag(4)
                 Text("25 (5 × 5)").tag(5)
             }
+            Picker("Autres positions de la tête", selection: $settings.calibrationExtraPoses) {
+                Text("Aucune").tag(0)
+                Text("2 (gauche, droite)").tag(2)
+                Text("4 (gauche, droite, arrière, avant)").tag(4)
+            }
             Toggle("Apprendre aussi sur les points de validation", isOn: $settings.trainOnValidation)
         }
     }

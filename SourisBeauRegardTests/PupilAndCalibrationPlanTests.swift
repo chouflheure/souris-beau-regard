@@ -70,11 +70,12 @@ final class GazeFeaturesTests: XCTestCase {
     }
 
     /// Œil horizontal de 100 × 30 px dans une image 1000 × 1000 (coordonnées Vision).
-    private func eye(pupilX: Double, pupilY: Double) -> EyeMeasurement {
+    private func eye(pupilX: Double, pupilY: Double, shift: Double = 0) -> EyeMeasurement {
         let contour = [CGPoint(x: 0.40, y: 0.50), CGPoint(x: 0.45, y: 0.515), CGPoint(x: 0.50, y: 0.50), CGPoint(x: 0.45, y: 0.485)]
+            .map { CGPoint(x: $0.x + shift, y: $0.y) }
         return EyeMeasurement(contour: contour, box: FaceGeometry.boundingBox(of: contour), openness: 0.3,
-                              visionPupil: CGPoint(x: 0.45, y: 0.50),
-                              imagePupil: CGPoint(x: pupilX, y: pupilY))
+                              visionPupil: CGPoint(x: 0.45 + shift, y: 0.50),
+                              imagePupil: CGPoint(x: pupilX + shift, y: pupilY))
     }
 
     func testMakeUsesChosenLocatorAndNeedsBothPupils() throws {
@@ -82,7 +83,7 @@ final class GazeFeaturesTests: XCTestCase {
         var face = FaceMeasurement(boundingBox: CGRect(x: 0.3, y: 0.3, width: 0.4, height: 0.5),
                                    faceConfidence: 1, landmarksConfidence: 1, yaw: 0.1, pitch: -0.2, roll: 0.05,
                                    regions: [], leftEye: eye(pupilX: 0.42, pupilY: 0.505),
-                                   rightEye: eye(pupilX: 0.42, pupilY: 0.505))
+                                   rightEye: eye(pupilX: 0.42, pupilY: 0.505, shift: 0.2))
 
         let vision = try XCTUnwrap(GazeFeatures.make(from: face, imageSize: size, locator: .vision))
         XCTAssertEqual(vision.leftPupilX, 0.5, accuracy: 1e-9)
@@ -92,11 +93,13 @@ final class GazeFeaturesTests: XCTestCase {
         XCTAssertEqual(image.leftPupilY, 0.05, accuracy: 1e-9)   // 5 px au-dessus, œil de 100 px
         XCTAssertEqual(image.aperture, 0.3, accuracy: 1e-9)      // 30 px / 100 px
         XCTAssertEqual(image.yaw, 0.1)
-        XCTAssertEqual(image.faceCenterX, 0.5, accuracy: 1e-9)
-        XCTAssertEqual(image.faceSize, 0.4, accuracy: 1e-9)
+        XCTAssertEqual(image.rightPupilX, 0.2, accuracy: 1e-9)
+        XCTAssertEqual(image.faceCenterX, 0.55, accuracy: 1e-9)   // milieu des yeux (0,45 et 0,65)
+        XCTAssertEqual(image.faceCenterY, 0.5, accuracy: 1e-9)
+        XCTAssertEqual(image.faceSize, 0.2, accuracy: 1e-9)       // 200 px entre les yeux / 1000 px
         XCTAssertEqual(image.vector.count, GazeFeatures.count)
 
-        var right = eye(pupilX: 0.42, pupilY: 0.505)
+        var right = eye(pupilX: 0.42, pupilY: 0.505, shift: 0.2)
         right.imagePupil = nil
         face.rightEye = right
         XCTAssertNil(GazeFeatures.make(from: face, imageSize: size, locator: .image))

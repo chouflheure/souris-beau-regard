@@ -41,6 +41,10 @@ struct MenuContent: View {
         Divider()
 
         Button("Calibrer…") { appState.startCalibration() }
+        Button(appState.recenterShortcutAvailable ? "Recentrer (\(GlobalHotKeys.recenter.label))" : "Recentrer") {
+            appState.recenter()
+        }
+        .disabled(!appState.isTrackingActive)
         Toggle("Suivre le regard", isOn: $settings.trackingEnabled)
             .disabled(appState.calibration == nil)
         Toggle("Afficher le point de regard", isOn: $settings.showGazePoint)

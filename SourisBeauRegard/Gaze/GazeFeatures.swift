@@ -18,7 +18,9 @@ struct GazeFeatures: Codable, Sendable, Equatable {
     var yaw: Double
     var pitch: Double
     var roll: Double
-    /// Centre et taille (largeur) du visage, normalisés dans l'image.
+    /// Position de la tête : milieu des coins des deux yeux (normalisé Vision de l'image) et
+    /// distance entre les deux yeux (fraction de la largeur de l'image, grandit quand on s'approche).
+    /// Bien plus stables d'une image à l'autre que la boîte du visage.
     var faceCenterX: Double
     var faceCenterY: Double
     var faceSize: Double
@@ -68,16 +70,16 @@ struct GazeFeatures: Codable, Sendable, Equatable {
         CGPoint(x: p.x * imageSize.width, y: p.y * imageSize.height)
     }
 
-    /// Pupille et ouverture d'un œil dans son repère coin–coin.
+    /// Pupille et ouverture d'un œil dans son repère coin–coin, et milieu des coins (pixels isotropes).
     static func eyePosition(_ eye: EyeMeasurement, pupil: CGPoint,
-                            imageSize: CGSize) -> (pupil: CGPoint, aperture: Double)? {
+                            imageSize: CGSize) -> (pupil: CGPoint, aperture: Double, center: CGPoint)? {
         let contour = eye.contour.map { isotropic($0, imageSize: imageSize) }
         guard let pair = corners(of: contour) else { return nil }
         let (a, b) = pair
         let p = position(of: isotropic(pupil, imageSize: imageSize), cornerA: a, cornerB: b)
         let ys = contour.map { position(of: $0, cornerA: a, cornerB: b).y }
         let aperture = Double((ys.max() ?? 0) - (ys.min() ?? 0))
-        return (p, aperture)
+        return (p, aperture, CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2))
     }
 
     /// Mesures d'un visage avec la méthode de pupille choisie ; `nil` s'il manque un œil ou une pupille.
@@ -88,13 +90,16 @@ struct GazeFeatures: Codable, Sendable, Equatable {
               let l = eyePosition(left, pupil: lp, imageSize: imageSize),
               let r = eyePosition(right, pupil: rp, imageSize: imageSize)
         else { return nil }
+        guard imageSize.width > 0, imageSize.height > 0 else { return nil }
+        let midX = (l.center.x + r.center.x) / 2, midY = (l.center.y + r.center.y) / 2
+        let interocular = hypot(l.center.x - r.center.x, l.center.y - r.center.y)
         return GazeFeatures(
             leftPupilX: Double(l.pupil.x), leftPupilY: Double(l.pupil.y),
             rightPupilX: Double(r.pupil.x), rightPupilY: Double(r.pupil.y),
             aperture: (l.aperture + r.aperture) / 2,
             yaw: face.yaw, pitch: face.pitch, roll: face.roll,
-            faceCenterX: Double(face.boundingBox.midX),
-            faceCenterY: Double(face.boundingBox.midY),
-            faceSize: Double(face.boundingBox.width))
+            faceCenterX: Double(midX / imageSize.width),
+            faceCenterY: Double(midY / imageSize.height),
+            faceSize: Double(interocular / imageSize.width))
     }
 }

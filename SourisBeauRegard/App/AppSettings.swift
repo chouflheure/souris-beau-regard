@@ -23,6 +23,7 @@ final class AppSettings {
         static let lambdaAuto = "gaze.lambdaAuto"
         static let modelChoice = "gaze.modelChoice"
         static let calibrationGridSize = "calibration.gridSize"
+        static let calibrationExtraPoses = "calibration.extraPoses"
         static let trainOnValidation = "calibration.trainOnValidation"
         static let trackingEnabled = "gaze.trackingEnabled"
         static let showGazePoint = "overlay.showGazePoint"
@@ -77,6 +78,10 @@ final class AppSettings {
     /// Grille de calibration n×n (3 = 9 points, 4 = 16, 5 = 25).
     var calibrationGridSize: Int {
         didSet { defaults.set(calibrationGridSize, forKey: Key.calibrationGridSize) }
+    }
+    /// Positions de tête supplémentaires pendant la calibration (0…4).
+    var calibrationExtraPoses: Int {
+        didSet { defaults.set(calibrationExtraPoses, forKey: Key.calibrationExtraPoses) }
     }
     /// Le modèle final apprend aussi sur les 5 points de validation.
     var trainOnValidation: Bool {
@@ -143,6 +148,7 @@ final class AppSettings {
         var plan = CalibrationPlan()
         plan.minOpenness = minEyeOpenness
         plan.gridSize = calibrationGridSize
+        plan.extraPoses = calibrationExtraPoses
         return plan
     }
 
@@ -166,6 +172,7 @@ final class AppSettings {
             Key.lambdaAuto: true,
             Key.modelChoice: "auto",
             Key.calibrationGridSize: 3,
+            Key.calibrationExtraPoses: 2,
             Key.trainOnValidation: true,
             Key.trackingEnabled: true,
             Key.showGazePoint: true,
@@ -187,6 +194,7 @@ final class AppSettings {
         modelChoice = GazeModelKind(rawValue: defaults.string(forKey: Key.modelChoice) ?? "auto")
         calibrationGridSize = min(max(defaults.integer(forKey: Key.calibrationGridSize), 3), 5)
         trainOnValidation = defaults.bool(forKey: Key.trainOnValidation)
+        calibrationExtraPoses = min(max(defaults.integer(forKey: Key.calibrationExtraPoses), 0), 4)
         trackingEnabled = defaults.bool(forKey: Key.trackingEnabled)
         showGazePoint = defaults.bool(forKey: Key.showGazePoint)
         smoothingMinCutoff = defaults.double(forKey: Key.smoothingMinCutoff)

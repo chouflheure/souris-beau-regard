@@ -234,6 +234,38 @@ final class RidgeRegressionTests: XCTestCase {
         XCTAssertLessThan(best.error, full)
     }
 
+    /// Avec plusieurs positions de tête à la calibration, le modèle « + tête » corrige un déplacement
+    /// de la tête jamais vu ; le modèle sans la tête se trompe.
+    func testHeadModelCompensatesHeadShiftWhenCalibratedInSeveralPoses() throws {
+        var g = SeededGenerator(state: 5)
+        func sample(_ p: CGPoint, headShift hx: Double) -> CalibrationSample {
+            let n = { Double.random(in: -0.002...0.002, using: &g) }
+            let headOnScreen = 720 + 4000 * hx           // 0,1 de décalage dans l'image ≈ 400 pt à l'écran
+            let mx = 0.5 + 0.4 * (Double(p.x) - headOnScreen) / 1440
+            let my = 0.1 - 0.1 * Double(p.y) / 900
+            let v = [mx + n(), my + n(), mx + n(), my + n(), n(), n(), n(),
+                     0.5 + hx + n() * 0.1, 0.5 + n() * 0.1, 0.2 + n() * 0.1, 0.3 + n()]
+            return CalibrationSample(features: features(v), target: p)
+        }
+        let screen = CGRect(x: 0, y: 0, width: 1440, height: 900)
+        let grid = CalibrationPlan.calibrationGrid.map { CoordinateSpaces.normalizedToQuartz($0, screenFrameQuartz: screen) }
+        var training: [CalibrationSample] = []
+        for hx in [0, -0.1, 0.1] { for p in grid { for _ in 0..<10 { training.append(sample(p, headShift: hx)) } } }
+
+        func error(_ kind: GazeModelKind) throws -> Double {
+            let regression = try kind.fit(training, lambda: 0.1)
+            let targets = [CGPoint(x: 720, y: 450), CGPoint(x: 389, y: 252)]
+            let errors = targets.map { t -> Double in
+                let group = (0..<10).map { _ in sample(t, headShift: 0.05) }
+                let e = ModelSelection.medianPrediction(group, kind: kind, regression: regression)
+                return Double(hypot(e.x - t.x, e.y - t.y))
+            }
+            return errors.reduce(0, +) / Double(errors.count)
+        }
+        XCTAssertLessThan(try error(.binocularHead), 30)
+        XCTAssertGreaterThan(try error(.binocular), 50)
+    }
+
     func testGroupsKeepOrder() {
         let a = CalibrationSample(features: features(Array(repeating: 0, count: 11)), target: CGPoint(x: 1, y: 1))
         let b = CalibrationSample(features: features(Array(repeating: 0, count: 11)), target: CGPoint(x: 2, y: 2))
