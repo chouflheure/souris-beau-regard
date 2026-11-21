@@ -30,7 +30,20 @@ struct MenuContent: View {
     @Environment(AppState.self) private var appState
 
     var body: some View {
+        @Bindable var settings = appState.settings
         Text(appState.isCameraRunning ? "Caméra : active" : "Caméra : arrêtée")
+        if let validation = appState.calibration?.validation {
+            Text("Calibration : erreur moyenne \(Int(validation.meanError.rounded())) pt")
+        } else if appState.calibration == nil {
+            Text("Pas encore calibré")
+        }
+
+        Divider()
+
+        Button("Calibrer…") { appState.startCalibration() }
+        Toggle("Suivre le regard", isOn: $settings.trackingEnabled)
+            .disabled(appState.calibration == nil)
+        Toggle("Afficher le point de regard", isOn: $settings.showGazePoint)
 
         Divider()
 

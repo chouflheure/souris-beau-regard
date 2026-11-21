@@ -17,15 +17,17 @@ struct DebugView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     Toggle("Aperçu en miroir", isOn: $settings.mirrorPreview)
+                    Legend()
                     WarningsSection()
+                    GazeSection()
                     MeasurementsSection()
                 }
                 .padding(16)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(width: 340)
+            .frame(width: 380)
         }
-        .frame(minWidth: 900, minHeight: 400)
+        .frame(minWidth: 940, minHeight: 480)
     }
 }
 
@@ -93,12 +95,107 @@ private struct FaceOverlay: View {
                     context.stroke(path, with: .color(.yellow.opacity(0.9)), lineWidth: 1)
                 }
             }
+
+            // Pupille trouvée dans l'image (zone sombre) : croix magenta.
+            for eye in [face.leftEye, face.rightEye].compactMap({ $0 }) {
+                guard let p = eye.imagePupil.map(toView) else { continue }
+                var cross = Path()
+                cross.move(to: CGPoint(x: p.x - 5, y: p.y)); cross.addLine(to: CGPoint(x: p.x + 5, y: p.y))
+                cross.move(to: CGPoint(x: p.x, y: p.y - 5)); cross.addLine(to: CGPoint(x: p.x, y: p.y + 5))
+                context.stroke(cross, with: .color(.pink), lineWidth: 1.5)
+            }
         }
         .allowsHitTesting(false)
     }
 }
 
 // MARK: - Panneau latéral
+
+private struct Legend: View {
+    var body: some View {
+        HStack(spacing: 12) {
+            Label("Pupille Vision", systemImage: "circle.fill").foregroundStyle(.red)
+            Label("Pupille image", systemImage: "plus").foregroundStyle(.pink)
+            Label("Œil", systemImage: "square").foregroundStyle(.cyan)
+        }
+        .font(.caption)
+    }
+}
+
+private struct GazeSection: View {
+    @Environment(AppState.self) private var appState
+
+    var body: some View {
+        @Bindable var settings = appState.settings
+        let features = appState.lastFeatures
+        GroupBox("Regard") {
+            VStack(alignment: .leading, spacing: 6) {
+                Picker("Pupille", selection: $settings.pupilLocator) {
+                    ForEach(PupilLocatorKind.allCases) { Text($0.label).tag($0) }
+                }
+                .pickerStyle(.segmented)
+
+                if settings.pupilLocator == .image {
+                    LabeledContent("Part sombre") {
+                        Slider(value: $settings.pupilDarkFraction, in: 0.03...0.4)
+                        Text(String(format: "%.2f", settings.pupilDarkFraction)).monospacedDigit()
+                    }
+                    .font(.callout)
+                }
+
+                ValueRow("Pupille G (x, y)", features.map { String(format: "%.3f, %.3f", $0.leftPupilX, $0.leftPupilY) } ?? "—")
+                ValueRow("Pupille D (x, y)", features.map { String(format: "%.3f, %.3f", $0.rightPupilX, $0.rightPupilY) } ?? "—")
+                ValueRow("Écart Vision / image G", pupilGap(appState.lastFrame?.face?.leftEye))
+                ValueRow("Écart Vision / image D", pupilGap(appState.lastFrame?.face?.rightEye))
+
+                Divider()
+
+                if let calibration = appState.calibration {
+                    ValueRow("Erreur de validation",
+                             calibration.validation.map { String(format: "moy. %.0f pt · max %.0f pt", $0.meanError, $0.maxError) } ?? "—")
+                    ValueRow("Mesures de calibration", "\(calibration.calibrationSamples.count)")
+                    if calibration.pupilLocator != settings.pupilLocator {
+                        Label("Calibré avec « \(calibration.pupilLocator.label) » : recalibrez après avoir changé de méthode.",
+                              systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                            .font(.callout)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                } else {
+                    Text("Pas encore calibré.").foregroundStyle(.secondary).font(.callout)
+                }
+                LabeledContent("λ (ridge)") {
+                    Slider(value: $settings.ridgeLambdaLog10, in: -2...3)
+                    Text(String(format: "%.2g", settings.ridgeLambda)).monospacedDigit()
+                }
+                .font(.callout)
+
+                if let gaze = appState.gaze {
+                    ValueRow("Regard brut", String(format: "%.0f, %.0f", gaze.raw.x, gaze.raw.y))
+                    ValueRow("Regard lissé", String(format: "%.0f, %.0f", gaze.smoothed.x, gaze.smoothed.y))
+                    ValueRow("Fixation", gaze.fixation.map { String(format: "%.0f, %.0f", $0.x, $0.y) } ?? "non")
+                }
+                if let error = appState.calibrationSaveError {
+                    Text(error).foregroundStyle(.red).font(.callout)
+                }
+
+                HStack {
+                    Button("Calibrer…") { appState.startCalibration() }
+                    if appState.calibration != nil {
+                        Button("Effacer la calibration", role: .destructive) { appState.deleteCalibration() }
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    /// Distance entre les deux pupilles trouvées, en fraction de la largeur de l'œil.
+    private func pupilGap(_ eye: EyeMeasurement?) -> String {
+        guard let eye, let a = eye.visionPupil, let b = eye.imagePupil, eye.box.width > 0 else { return "—" }
+        return String(format: "%.2f largeur d'œil", hypot(a.x - b.x, a.y - b.y) / eye.box.width)
+    }
+}
 
 private struct WarningsSection: View {
     @Environment(AppState.self) private var appState

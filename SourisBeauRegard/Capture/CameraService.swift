@@ -53,6 +53,7 @@ final class CameraService: NSObject, @unchecked Sendable, AVCaptureVideoDataOutp
 
     private struct Shared: Sendable {
         var previewEnabled = false
+        var pupilDarkFraction = 0.12
         var handler: (@Sendable (CameraOutput) -> Void)?
     }
 
@@ -65,6 +66,8 @@ final class CameraService: NSObject, @unchecked Sendable, AVCaptureVideoDataOutp
     // Accédés uniquement sur `queue`.
     private let session = AVCaptureSession()
     private let analyzer = FaceAnalyzer()
+    private let visionPupilLocator = VisionPupilLocator()
+    private var imagePupilLocator = ImagePupilLocator()
     private let ciContext = CIContext(options: [.cacheIntermediates: false])
     private var configuredInfo: CameraInfo?
     private var lastFrameTime: Double?
@@ -78,6 +81,10 @@ final class CameraService: NSObject, @unchecked Sendable, AVCaptureVideoDataOutp
 
     func setPreviewEnabled(_ enabled: Bool) {
         shared.withLock { $0.previewEnabled = enabled }
+    }
+
+    func setPupilDarkFraction(_ fraction: Double) {
+        shared.withLock { $0.pupilDarkFraction = fraction }
     }
 
     /// Configure (la première fois) et démarre la capture. L'autorisation caméra doit être accordée.
@@ -195,7 +202,18 @@ final class CameraService: NSObject, @unchecked Sendable, AVCaptureVideoDataOutp
         updateFPS(timestamp: timestamp)
 
         let start = DispatchTime.now().uptimeNanoseconds
-        let face = analyzer.analyze(pixelBuffer: pixelBuffer)
+        var face = analyzer.analyze(pixelBuffer: pixelBuffer)
+        // Les deux PupilLocator tournent à chaque image, pour pouvoir les comparer.
+        imagePupilLocator.darkFraction = state.pupilDarkFraction
+        if var f = face {
+            for keyPath in [\FaceMeasurement.leftEye, \FaceMeasurement.rightEye] {
+                guard var eye = f[keyPath: keyPath] else { continue }
+                eye.visionPupil = visionPupilLocator.locate(eye: eye, pixelBuffer: pixelBuffer)
+                eye.imagePupil = imagePupilLocator.locate(eye: eye, pixelBuffer: pixelBuffer)
+                f[keyPath: keyPath] = eye
+            }
+            face = f
+        }
         let elapsed = Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000_000
 
         let frame = FaceFrame(

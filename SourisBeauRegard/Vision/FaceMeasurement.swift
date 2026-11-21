@@ -23,6 +23,30 @@ struct EyeMeasurement: Sendable, Equatable {
     var openness: Double
     /// Point « pupille » fourni par Vision, normalisé Vision de l'image.
     var visionPupil: CGPoint?
+    /// Pupille trouvée dans l'image (zone la plus sombre), normalisée Vision de l'image.
+    var imagePupil: CGPoint? = nil
+
+    func pupil(_ kind: PupilLocatorKind) -> CGPoint? {
+        switch kind {
+        case .vision: visionPupil
+        case .image: imagePupil
+        }
+    }
+}
+
+/// Les deux façons de localiser la pupille, à comparer dans la fenêtre de débogage.
+enum PupilLocatorKind: String, Codable, CaseIterable, Identifiable, Sendable {
+    case vision
+    case image
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .vision: "Vision (repères)"
+        case .image: "Image (zone sombre)"
+        }
+    }
 }
 
 /// Tout ce qu'on sait du visage principal dans une image.
@@ -73,6 +97,22 @@ enum FaceGeometry {
         let h = normalizedBox.height * imageSize.height
         guard w > 0 else { return 0 }
         return Double(h / w)
+    }
+
+    /// Le point est-il dans le polygone ? (lancer de rayon)
+    static func polygon(_ polygon: [CGPoint], contains point: CGPoint) -> Bool {
+        guard polygon.count >= 3 else { return false }
+        var inside = false
+        var j = polygon.count - 1
+        for i in 0..<polygon.count {
+            let a = polygon[i], b = polygon[j]
+            if (a.y > point.y) != (b.y > point.y) {
+                let x = a.x + (point.y - a.y) / (b.y - a.y) * (b.x - a.x)
+                if point.x < x { inside.toggle() }
+            }
+            j = i
+        }
+        return inside
     }
 
     /// Recouvrement (intersection sur union) de deux rectangles, 0…1.

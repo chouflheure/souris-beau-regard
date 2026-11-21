@@ -7,7 +7,8 @@ Tout tourne en local avec la webcam du Mac, sans réseau, et aucune image n'est 
 Une webcam donne un regard imprécis (2 à 4 cm d'erreur à l'écran). L'app ne vise donc pas un pixel
 mais l'**élément cliquable le plus proche** du regard, trouvé grâce à l'API d'accessibilité de macOS.
 
-> État : **étape 1 / 6** — squelette, autorisations, fenêtre de débogage (image caméra et repères du visage).
+> État : **étape 2 / 6** — autorisations, fenêtre de débogage, mesures du regard, calibration
+> 9 + 5 points, point de regard affiché par-dessus tout.
 > Voir `TESTING.md` pour les vérifications de chaque étape.
 
 ## Prérequis
@@ -62,7 +63,20 @@ puis relancer l'app et réautoriser.
 
 ## Calibrer
 
-Arrive à l'étape 2 (9 points de calibration, 5 points de validation avec l'erreur moyenne).
+1. Asseyez-vous à 50–70 cm de l'écran, visage bien éclairé de face (pas de fenêtre derrière vous).
+2. Placez le pointeur sur l'écran à calibrer, puis menu ▸ **Calibrer…**.
+3. Espace pour commencer. Suivez des yeux chaque point blanc jusqu'à ce qu'il ait rétréci
+   (9 points dans un ordre aléatoire), puis les 5 points cyan de vérification. Gardez la tête immobile.
+4. L'erreur moyenne et maximale s'affiche en points écran (objectif : moins de 150).
+   **Entrée** garde la calibration, **R** recommence, **Échap** annule.
+
+La calibration est enregistrée dans
+`~/Library/Application Support/SourisBeauRegard/calibration.json` et rechargée au lancement.
+Elle contient les mesures brutes : changer λ (réglages ou fenêtre de débogage) refait le calcul
+et l'erreur de validation sans recalibrer. Changer de méthode de pupille demande une nouvelle calibration.
+
+Le point de regard (cercle orange, vert pendant une fixation) s'affiche par-dessus tout ;
+menu ▸ *Afficher le point de regard* pour le masquer, *Suivre le regard* pour mettre en pause.
 
 ## Architecture
 
@@ -71,12 +85,13 @@ SourisBeauRegard/
 ├── App/          point d'entrée (MenuBarExtra + Settings), état central, réglages
 ├── Permissions/  état des autorisations, écran d'accueil
 ├── Capture/      AVCaptureSession + analyse Vision sur une file dédiée
-├── Vision/       FaceAnalyzer (repères), mesures du visage, avertissements de qualité
-├── Gaze/         (étape 2) mesures, régression, filtres, fixation
+├── Vision/       FaceAnalyzer (repères), PupilLocator (Vision / zone sombre), qualité
+├── Gaze/         GazeFeatures, RidgeRegression, CalibrationModel/Plan/Session,
+│                 OneEuroFilter, FixationDetector, GazeEngine
 ├── Targeting/    (étape 3) recherche de la cible par accessibilité
 ├── Input/        (étape 4) sources de clic, envoi des événements souris
 ├── Geometry/     CoordinateSpaces : seul module de conversion Vision / AppKit / Quartz
-└── UI/           fenêtres (débogage, réglages, puis surlignage et calibration)
+└── UI/           débogage, réglages, surlignage (OverlayWindow), calibration plein écran
 SourisBeauRegardTests/   tests de la logique pure
 ```
 

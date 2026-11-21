@@ -1,0 +1,175 @@
+import CoreGraphics
+import XCTest
+@testable import SourisBeauRegard
+
+final class RidgeRegressionTests: XCTestCase {
+
+    /// Générateur pseudo-aléatoire déterministe (LCG) pour des tests reproductibles.
+    private struct SeededGenerator: RandomNumberGenerator {
+        var state: UInt64
+        mutating func next() -> UInt64 {
+            state = state &* 6364136223846793005 &+ 1442695040888963407
+            return state
+        }
+    }
+
+    private func randomInputs(count: Int, dimension: Int) -> [[Double]] {
+        var g = SeededGenerator(state: 42)
+        return (0..<count).map { _ in (0..<dimension).map { _ in Double.random(in: -1...1, using: &g) } }
+    }
+
+    func testExpandCountsAndTerms() {
+        let e = RidgeRegression.expand([1, 2, 3], polynomialCount: 2)
+        // x1, x2, x1², x1x2, x2², x3
+        XCTAssertEqual(e, [1, 2, 1, 2, 4, 3])
+        XCTAssertEqual(RidgeRegression.expandedCount(inputCount: 10, polynomialCount: 4), 20)
+        XCTAssertEqual(RidgeRegression.expand(Array(repeating: 1, count: 10), polynomialCount: 4).count, 20)
+    }
+
+    func testRecoversLinearFunction() throws {
+        let inputs = randomInputs(count: 200, dimension: 3)
+        let targets = inputs.map { CGPoint(x: 100 + 300 * $0[0] - 50 * $0[2], y: -20 + 80 * $0[1]) }
+        let model = try RidgeRegression.fit(inputs: inputs, targets: targets, lambda: 1e-6, polynomialCount: 0)
+        for (input, target) in zip(inputs.prefix(20), targets) {
+            let p = model.predict(input)
+            XCTAssertEqual(p.x, target.x, accuracy: 1e-3)
+            XCTAssertEqual(p.y, target.y, accuracy: 1e-3)
+        }
+    }
+
+    func testRecoversQuadraticFunctionOfPupils() throws {
+        let inputs = randomInputs(count: 300, dimension: 10)
+        let targets = inputs.map { v in
+            CGPoint(x: 800 + 400 * v[0] + 120 * v[0] * v[0] - 60 * v[1] * v[2] + 30 * v[5],
+                    y: 500 + 300 * v[1] + 90 * v[3] * v[3] + 20 * v[7])
+        }
+        let model = try RidgeRegression.fit(inputs: inputs, targets: targets, lambda: 1e-6, polynomialCount: 4)
+        let test = randomInputs(count: 5, dimension: 10)
+        for v in test {
+            let expected = CGPoint(x: 800 + 400 * v[0] + 120 * v[0] * v[0] - 60 * v[1] * v[2] + 30 * v[5],
+                                   y: 500 + 300 * v[1] + 90 * v[3] * v[3] + 20 * v[7])
+            let p = model.predict(v)
+            XCTAssertEqual(p.x, expected.x, accuracy: 0.1)
+            XCTAssertEqual(p.y, expected.y, accuracy: 0.1)
+        }
+    }
+
+    func testLargeLambdaShrinksTowardMean() throws {
+        let inputs = randomInputs(count: 100, dimension: 2)
+        let targets = inputs.map { CGPoint(x: 1000 * $0[0], y: 1000 * $0[1]) }
+        let model = try RidgeRegression.fit(inputs: inputs, targets: targets, lambda: 1e9, polynomialCount: 0)
+        let meanX = targets.map(\.x).reduce(0, +) / CGFloat(targets.count)
+        XCTAssertEqual(model.predict([1, 1]).x, meanX, accuracy: 1)
+    }
+
+    func testConstantColumnDoesNotBreakFit() throws {
+        var inputs = randomInputs(count: 50, dimension: 3)
+        for i in inputs.indices { inputs[i][1] = 7 }
+        let targets = inputs.map { CGPoint(x: 10 * $0[0], y: 5 * $0[2]) }
+        let model = try RidgeRegression.fit(inputs: inputs, targets: targets, lambda: 1e-3, polynomialCount: 0)
+        XCTAssertEqual(model.predict([0.5, 7, -0.5]).x, 5, accuracy: 0.01)
+        XCTAssertEqual(model.predict([0.5, 7, -0.5]).y, -2.5, accuracy: 0.01)
+    }
+
+    func testRejectsBadInput() {
+        XCTAssertThrowsError(try RidgeRegression.fit(inputs: [[1]], targets: [.zero], lambda: 1, polynomialCount: 0))
+        XCTAssertThrowsError(try RidgeRegression.fit(inputs: [[1, 2], [1]], targets: [.zero, .zero], lambda: 1, polynomialCount: 0))
+        XCTAssertThrowsError(try RidgeRegression.fit(inputs: [[1, 2], [3, 4]], targets: [.zero], lambda: 1, polynomialCount: 0))
+    }
+
+    func testCholeskySolve() throws {
+        // A = [[4, 2], [2, 3]], b = [2, 1] → x = [0.5, 0]
+        let l = try XCTUnwrap(RidgeRegression.cholesky([4, 2, 2, 3], size: 2))
+        let x = RidgeRegression.choleskySolve(l, size: 2, rhs: [2, 1])
+        XCTAssertEqual(x[0], 0.5, accuracy: 1e-12)
+        XCTAssertEqual(x[1], 0, accuracy: 1e-12)
+        XCTAssertNil(RidgeRegression.cholesky([1, 2, 2, 1], size: 2))
+    }
+
+    // MARK: - Modèle de calibration et sauvegarde
+
+    private func features(_ v: [Double]) -> GazeFeatures {
+        GazeFeatures(leftPupilX: v[0], leftPupilY: v[1], rightPupilX: v[2], rightPupilY: v[3],
+                     yaw: v[4], pitch: v[5], roll: v[6], faceCenterX: v[7], faceCenterY: v[8], faceSize: v[9])
+    }
+
+    /// Mesures simulées : les pupilles bougent linéairement avec le point regardé, plus du bruit.
+    private func simulatedSamples(points: [CGPoint], perPoint: Int) -> [CalibrationSample] {
+        var g = SeededGenerator(state: 7)
+        var out: [CalibrationSample] = []
+        for p in points {
+            for _ in 0..<perPoint {
+                let nx = Double(p.x) / 1440, ny = Double(p.y) / 900
+                let noise = { Double.random(in: -0.002...0.002, using: &g) }
+                let v = [0.3 + 0.4 * nx + noise(), 0.6 - 0.3 * ny + noise(),
+                         0.3 + 0.4 * nx + noise(), 0.6 - 0.3 * ny + noise(),
+                         noise(), noise(), noise(), 0.5 + noise(), 0.5 + noise(), 0.3 + noise()]
+                out.append(CalibrationSample(features: features(v), target: p))
+            }
+        }
+        return out
+    }
+
+    func testCalibrationModelFitValidateAndRefit() throws {
+        let screen = CGRect(x: 0, y: 0, width: 1440, height: 900)
+        let grid = CalibrationPlan.calibrationGrid.map { CoordinateSpaces.normalizedToQuartz($0, screenFrameQuartz: screen) }
+        var model = try CalibrationModel.fit(samples: simulatedSamples(points: grid, perPoint: 20),
+                                             screenFrame: screen, pupilLocator: .image, lambda: 1)
+        let validationTargets = CalibrationPlan.validationPoints.map { CoordinateSpaces.normalizedToQuartz($0, screenFrameQuartz: screen) }
+        let groups = validationTargets.map { simulatedSamples(points: [$0], perPoint: 10) }
+        model.setValidation(groups)
+        let result = try XCTUnwrap(model.validation)
+        XCTAssertLessThan(result.meanError, 40)
+        XCTAssertEqual(result.pointErrors.count, 5)
+
+        try model.refit(lambda: 1e6)
+        XCTAssertEqual(model.regression.lambda, 1e6)
+        XCTAssertGreaterThan(try XCTUnwrap(model.validation).meanError, result.meanError)
+    }
+
+    func testCalibrationNeedsEnoughSamples() {
+        let screen = CGRect(x: 0, y: 0, width: 1440, height: 900)
+        let samples = simulatedSamples(points: [CGPoint(x: 100, y: 100)], perPoint: 50)
+        XCTAssertThrowsError(try CalibrationModel.fit(samples: samples, screenFrame: screen, pupilLocator: .vision, lambda: 1)) {
+            XCTAssertEqual($0 as? CalibrationModel.FitError, .notEnoughSamples)
+        }
+    }
+
+    func testOffsetIsAddedToPrediction() throws {
+        let screen = CGRect(x: 0, y: 0, width: 1440, height: 900)
+        let grid = CalibrationPlan.calibrationGrid.map { CoordinateSpaces.normalizedToQuartz($0, screenFrameQuartz: screen) }
+        let samples = simulatedSamples(points: grid, perPoint: 10)
+        var model = try CalibrationModel.fit(samples: samples, screenFrame: screen, pupilLocator: .image, lambda: 1)
+        let f = samples[0].features
+        let before = model.predict(f)
+        model.offset = CGPoint(x: 12, y: -8)
+        XCTAssertEqual(model.predict(f).x, before.x + 12, accuracy: 1e-9)
+        XCTAssertEqual(model.predict(f).y, before.y - 8, accuracy: 1e-9)
+        XCTAssertEqual(model.predictUncorrected(f), before)
+    }
+
+    func testStoreRoundTrip() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let store = CalibrationStore(url: dir.appendingPathComponent("sub/calibration.json"))
+        defer { try? FileManager.default.removeItem(at: dir) }
+        XCTAssertNil(store.load())
+
+        let screen = CGRect(x: -1440, y: 0, width: 1440, height: 900)
+        let grid = CalibrationPlan.calibrationGrid.map { CoordinateSpaces.normalizedToQuartz($0, screenFrameQuartz: screen) }
+        var model = try CalibrationModel.fit(samples: simulatedSamples(points: grid, perPoint: 5),
+                                             screenFrame: screen, pupilLocator: .vision, lambda: 2,
+                                             date: Date(timeIntervalSince1970: 1_700_000_000))
+        model.setValidation([simulatedSamples(points: [grid[4]], perPoint: 3), []])
+        model.offset = CGPoint(x: 3, y: 4)
+        try store.save(model)
+
+        let loaded = try XCTUnwrap(store.load())
+        XCTAssertEqual(loaded, model)
+        XCTAssertNil(loaded.validation?.pointErrors[1] ?? nil)
+        let f = model.calibrationSamples[0].features
+        XCTAssertEqual(loaded.predict(f), model.predict(f))
+
+        store.delete()
+        XCTAssertNil(store.load())
+    }
+}

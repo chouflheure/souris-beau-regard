@@ -27,6 +27,13 @@ enum CoordinateSpaces {
                 y: (1 - point.y) * imageSize.height)
     }
 
+    /// Pixels de l'image (origine haut-gauche) → normalisé Vision (origine bas-gauche).
+    static func imagePixelsToVision(_ point: CGPoint, imageSize: CGSize) -> CGPoint {
+        guard imageSize.width > 0, imageSize.height > 0 else { return .zero }
+        return CGPoint(x: point.x / imageSize.width,
+                       y: 1 - point.y / imageSize.height)
+    }
+
     /// Rectangle normalisé Vision → rectangle en pixels de l'image (origine haut-gauche).
     static func visionRectToImagePixels(_ rect: CGRect, imageSize: CGSize) -> CGRect {
         CGRect(x: rect.minX * imageSize.width,
