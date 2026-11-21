@@ -40,6 +40,9 @@ final class AppState {
     private(set) var gazeLossReason: String?
     /// Bruit du regard brut sur la dernière seconde (points).
     private(set) var gazeSpread: Double?
+    /// Bruit mesuré par la stabilisation (points) et sauts du regard détectés.
+    private(set) var stabilizerNoise: Double?
+    private(set) var gazeJumpCount = 0
     /// Nombre de relances automatiques de la caméra (image figée).
     private(set) var cameraRestarts = 0
     /// Recentrage en cours.
@@ -586,6 +589,8 @@ final class AppState {
         if let estimate {
             gaze = estimate
             gazeSpread = engine.rawSpread
+            stabilizerNoise = engine.stabilizerNoise
+            gazeJumpCount = engine.jumpCount
             gazeLossReason = estimate.isOffScreen ? "Prédiction hors de l'écran (tête déplacée depuis la calibration ?)" : nil
             lastGazeUpdate = now
             lastGazePoint = estimate.point

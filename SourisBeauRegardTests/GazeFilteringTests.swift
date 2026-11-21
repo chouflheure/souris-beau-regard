@@ -146,7 +146,9 @@ final class GazeEngineTests: XCTestCase {
     }
 
     func testMedianRemovesIsolatedSpike() throws {
-        var engine = GazeEngine()   // filtre médian de 5 images par défaut
+        var parameters = GazeParameters()
+        parameters.medianWindow = 5
+        var engine = GazeEngine(parameters: parameters)
         let screen = CGRect(x: 0, y: 0, width: 2000, height: 1000)
         var maxDeviation: CGFloat = 0
         for i in 0..<30 {
@@ -165,5 +167,92 @@ final class GazeEngineTests: XCTestCase {
             _ = engine.process(raw: CGPoint(x: i.isMultiple(of: 2) ? 480 : 520, y: 500), timestamp: Double(i) / 30, bounds: screen)
         }
         XCTAssertEqual(try XCTUnwrap(engine.rawSpread), 20, accuracy: 1e-6)
+    }
+}
+
+final class StableGazeFilterTests: XCTestCase {
+    private struct SeededGenerator: RandomNumberGenerator {
+        var state: UInt64
+        mutating func next() -> UInt64 {
+            state = state &* 6364136223846793005 &+ 1442695040888963407
+            return state
+        }
+    }
+
+    /// Bruit qui dérive (corrélé d'une image à l'autre), comme celui d'une webcam.
+    private func wanderingNoise(count: Int, sigma: Double, seed: UInt64) -> [CGPoint] {
+        var g = SeededGenerator(state: seed)
+        var x = 0.0, y = 0.0
+        let k = 0.85, s = sigma * (1 - k * k).squareRoot()
+        func gauss() -> Double {
+            let u = max(Double.random(in: 0...1, using: &g), 1e-12), v = Double.random(in: 0...1, using: &g)
+            return (-2 * log(u)).squareRoot() * cos(2 * .pi * v)
+        }
+        return (0..<count).map { _ in
+            x = k * x + s * gauss()
+            y = k * y + s * gauss()
+            return CGPoint(x: x, y: y)
+        }
+    }
+
+    func testConstantInputIsUnchanged() {
+        var f = StableGazeFilter()
+        for _ in 0..<50 { XCTAssertEqual(f.add(CGPoint(x: 300, y: 200)), CGPoint(x: 300, y: 200)) }
+        XCTAssertEqual(f.jumpCount, 0)
+    }
+
+    func testWanderingNoiseAtRestBarelyMovesThePoint() {
+        // Sur 10 tirages de bruit : au plus 2 avec un saut visible (> 40 pt d'une image à l'autre).
+        var runsWithVisibleJump = 0
+        var totalJumps = 0
+        for seed in 1...10 {
+            var f = StableGazeFilter()
+            let noise = wanderingNoise(count: 150, sigma: 100, seed: UInt64(seed) * 7919)
+            var outputs: [CGPoint] = []
+            for n in noise { outputs.append(f.add(CGPoint(x: 600 + n.x, y: 400 + n.y))) }
+            let settled = Array(outputs.suffix(100))
+            let maxStep = zip(settled.dropFirst(), settled).map { hypot($0.x - $1.x, $0.y - $1.y) }.max() ?? 0
+            if maxStep > 40 { runsWithVisibleJump += 1 }
+            totalJumps += f.jumpCount
+            let rawSpread = noise.suffix(100).map { hypot($0.x, $0.y) }.max() ?? 0
+            XCTAssertGreaterThan(rawSpread, 120, "le bruit de test doit être fort")
+        }
+        XCTAssertLessThanOrEqual(runsWithVisibleJump, 2)
+        XCTAssertLessThanOrEqual(totalJumps, 4)
+    }
+
+    func testRealJumpIsFollowedQuickly() {
+        var f = StableGazeFilter()
+        for _ in 0..<30 { _ = f.add(CGPoint(x: 300, y: 300)) }
+        var framesToArrive: Int?
+        for i in 0..<20 {
+            let p = f.add(CGPoint(x: 900, y: 500))
+            if framesToArrive == nil, hypot(p.x - 900, p.y - 500) < 50 { framesToArrive = i + 1 }
+        }
+        XCTAssertEqual(f.jumpCount, 1)
+        XCTAssertLessThanOrEqual(try XCTUnwrap(framesToArrive), 6, "moins de 0,2 s à 30 i/s")
+    }
+
+    func testIsolatedSpikeIsIgnored() {
+        var f = StableGazeFilter()
+        for _ in 0..<30 { _ = f.add(CGPoint(x: 300, y: 300)) }
+        let p = f.add(CGPoint(x: 900, y: 300))
+        XCTAssertLessThan(abs(p.x - 300), 25)
+        for _ in 0..<5 { _ = f.add(CGPoint(x: 300, y: 300)) }
+        XCTAssertEqual(f.jumpCount, 0)
+    }
+
+    func testMemoryLetsTheFixationFollowASlowDrift() {
+        var f = StableGazeFilter()
+        f.memory = 30
+        var last = CGPoint.zero
+        for i in 0..<120 { last = f.add(CGPoint(x: 300 + Double(i), y: 300)) }   // 1 pt par image
+        XCTAssertEqual(last.x, 300 + 119 - 14.5, accuracy: 1)                    // moyenne des 30 dernières
+    }
+
+    func testNonFiniteIsIgnored() {
+        var f = StableGazeFilter()
+        _ = f.add(CGPoint(x: 10, y: 10))
+        XCTAssertEqual(f.add(CGPoint(x: CGFloat.nan, y: 0)), CGPoint(x: 10, y: 10))
     }
 }

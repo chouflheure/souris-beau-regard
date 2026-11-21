@@ -7,18 +7,23 @@ struct GazeParameters: Sendable, Equatable {
     var derivativeCutoff: Double = 1.0
     var fixationDuration: Double = 0.15
     var fixationDispersion: Double = 120
-    /// Nombre d'images du filtre médian appliqué avant le One Euro (1 = désactivé).
+    /// Nombre d'images du filtre médian appliqué en premier (1 = désactivé).
     /// Il supprime les sauts isolés (mauvaise détection sur une image) sans lisser les vrais mouvements.
-    var medianWindow: Int = 5
+    var medianWindow: Int = 3
+    /// Stabilisation (voir `StableGazeFilter`) : seuil de saut (points), images de confirmation,
+    /// mémoire de la fixation (images).
+    var jumpThreshold: Double = 200
+    var jumpConfirmFrames: Int = 2
+    var fixationMemory: Int = 60
 }
 
 /// Estimation du regard à un instant, en points Quartz (origine haut-gauche de l'écran principal).
 struct GazeEstimate: Sendable, Equatable {
     /// Sortie brute de la calibration (avec décalage de recentrage), bornée à l'écran.
     var raw: CGPoint
-    /// Après filtre médian et One Euro.
+    /// Après filtre médian et One Euro (suit vite, mais tremble).
     var smoothed: CGPoint
-    /// Centre de la fixation en cours, s'il y en a une.
+    /// Point stabilisé (moyenne de la fixation en cours), quand la fixation compte assez de mesures.
     var fixation: CGPoint?
     var timestamp: Double
     /// La prédiction brute tombe nettement hors de l'écran calibré (la tête a bougé ?).
@@ -28,13 +33,14 @@ struct GazeEstimate: Sendable, Equatable {
     var point: CGPoint { fixation ?? smoothed }
 }
 
-/// Fin de la chaîne du regard : bornage à l'écran, filtre médian, filtre One Euro sur x et y,
-/// puis fixation. Logique pure, sans AppKit.
+/// Fin de la chaîne du regard : bornage à l'écran, filtre médian, puis deux sorties :
+/// One Euro (point lissé, réactif) et stabilisation par fixation (point pour viser).
+/// Logique pure, sans AppKit.
 struct GazeEngine: Sendable {
     private(set) var parameters: GazeParameters
     private var filterX: OneEuroFilter
     private var filterY: OneEuroFilter
-    private var fixation: FixationDetector
+    private var stable: StableGazeFilter
     private var recent: [CGPoint] = []
     /// Dernières positions brutes (environ 1 s) pour mesurer le bruit.
     private var history: [CGPoint] = []
@@ -48,17 +54,30 @@ struct GazeEngine: Sendable {
         filterX = OneEuroFilter(minCutoff: parameters.minCutoff, beta: parameters.beta,
                                 derivativeCutoff: parameters.derivativeCutoff)
         filterY = filterX
-        fixation = FixationDetector(minDuration: parameters.fixationDuration,
-                                    maxDispersion: parameters.fixationDispersion)
+        stable = StableGazeFilter()
+        Self.apply(parameters, to: &stable)
     }
+
+    private static func apply(_ p: GazeParameters, to stable: inout StableGazeFilter) {
+        stable.minThreshold = p.jumpThreshold
+        stable.maxThreshold = max(p.jumpThreshold * 2, p.jumpThreshold)
+        stable.confirmFrames = max(p.jumpConfirmFrames, 1)
+        stable.memory = max(p.fixationMemory, 2)
+    }
+
+    /// Nombre minimal de mesures dans la fixation pour la considérer comme établie.
+    static let minimumFixationSamples = 4
+
+    /// Bruit mesuré par la stabilisation (points), et nombre de sauts détectés.
+    var stabilizerNoise: Double? { stable.noise }
+    var jumpCount: Int { stable.jumpCount }
 
     mutating func setParameters(_ p: GazeParameters) {
         guard p != parameters else { return }
         parameters = p
         filterX.minCutoff = p.minCutoff; filterX.beta = p.beta; filterX.derivativeCutoff = p.derivativeCutoff
         filterY.minCutoff = p.minCutoff; filterY.beta = p.beta; filterY.derivativeCutoff = p.derivativeCutoff
-        fixation.minDuration = p.fixationDuration
-        fixation.maxDispersion = p.fixationDispersion
+        Self.apply(p, to: &stable)
     }
 
     static func clamp(_ p: CGPoint, to bounds: CGRect) -> CGPoint {
@@ -102,15 +121,16 @@ struct GazeEngine: Sendable {
 
         let smoothed = CGPoint(x: filterX.filter(Double(median.x), timestamp: timestamp),
                                y: filterY.filter(Double(median.y), timestamp: timestamp))
-        let center = fixation.add(smoothed, time: timestamp)
-        return GazeEstimate(raw: bounded, smoothed: smoothed, fixation: center,
+        let stabilized = stable.add(median)
+        let fixation = stable.fixation.count >= Self.minimumFixationSamples ? stabilized : nil
+        return GazeEstimate(raw: bounded, smoothed: smoothed, fixation: fixation,
                             timestamp: timestamp, isOffScreen: offScreen)
     }
 
     mutating func reset() {
         filterX.reset()
         filterY.reset()
-        fixation.reset()
+        stable.reset()
         recent = []
         history = []
     }

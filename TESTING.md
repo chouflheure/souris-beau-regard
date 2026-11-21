@@ -210,3 +210,21 @@ Menu ▸ **Entraînement (cliquer en regardant)…** (ou bouton dans le débogag
       (*Débogage ▸ Clics appris* : nombre de mesures).
 
 À rapporter : écart moyen du 1er et du 2e exercice, erreur estimée du nouveau modèle.
+
+### Étape 3 quater — Point stable sur un élément
+
+Le bruit d'une webcam « dérive » d'une image à l'autre : l'ancienne détection de fixation (dispersion
+sur 150 ms) se déclenchait sans cesse et le point sautait de plusieurs centimètres. Nouvelle stabilisation :
+pendant une fixation, le point est la **moyenne de toutes les mesures** (jusqu'à 2 s) ; on ne repart de zéro
+que si le regard s'écarte de plus de 200 pt (seuil qui grandit avec le bruit mesuré) pendant 2 images.
+En simulation avec un bruit de webcam : sauts visibles au repos divisés par 10 à 20, environ 0,2 s pour suivre
+un vrai changement de regard.
+
+- [ ] En fixant un bouton, le cercle et le surlignage restent dessus sans partir à gauche ou à droite.
+- [ ] En regardant un autre élément éloigné, le point y va en moins d'une demi-seconde.
+- [ ] *Débogage ▸ Stabilisation : bruit / sauts* : le nombre de sauts augmente quand on change de cible,
+      presque pas quand on fixe.
+- [ ] Si le point reste « collé » quand on passe à un bouton voisin : baisser *Réglages ▸ Lissage ▸
+      Stabilité : seuil de saut*. S'il saute encore au repos : l'augmenter, ou passer la confirmation à 3 images.
+
+À rapporter : comportement en fixant un élément, valeur du bruit affiché, réglages modifiés.

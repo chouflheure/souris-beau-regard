@@ -40,9 +40,10 @@ final class AppSettings {
         // Clés « v2 » : les valeurs par défaut ont changé, les anciennes valeurs enregistrées sont ignorées.
         static let smoothingMinCutoff = "gaze.smoothing.v2.minCutoff"
         static let smoothingBeta = "gaze.smoothing.v2.beta"
-        static let medianWindow = "gaze.smoothing.v2.medianWindow"
-        static let fixationDuration = "gaze.fixation.v2.duration"
-        static let fixationDispersion = "gaze.fixation.v2.dispersion"
+        static let medianWindow = "gaze.smoothing.v3.medianWindow"
+        static let jumpThreshold = "gaze.stability.jumpThreshold"
+        static let jumpConfirmFrames = "gaze.stability.jumpConfirmFrames"
+        static let fixationMemory = "gaze.stability.fixationMemory"
     }
 
     var hasCompletedOnboarding: Bool {
@@ -165,13 +166,17 @@ final class AppSettings {
     var smoothingBeta: Double {
         didSet { defaults.set(smoothingBeta, forKey: Key.smoothingBeta) }
     }
-    /// Fixation : durée minimale (s).
-    var fixationDuration: Double {
-        didSet { defaults.set(fixationDuration, forKey: Key.fixationDuration) }
+    /// Stabilisation : écart (points) au-delà duquel on considère que le regard a sauté ailleurs.
+    var jumpThreshold: Double {
+        didSet { defaults.set(jumpThreshold, forKey: Key.jumpThreshold) }
     }
-    /// Fixation : dispersion maximale (points écran).
-    var fixationDispersion: Double {
-        didSet { defaults.set(fixationDispersion, forKey: Key.fixationDispersion) }
+    /// Stabilisation : images consécutives au-delà du seuil pour confirmer un saut.
+    var jumpConfirmFrames: Int {
+        didSet { defaults.set(jumpConfirmFrames, forKey: Key.jumpConfirmFrames) }
+    }
+    /// Stabilisation : mémoire de la fixation, en images (30 ≈ 1 s).
+    var fixationMemory: Int {
+        didSet { defaults.set(fixationMemory, forKey: Key.fixationMemory) }
     }
     /// Filtre médian avant le lissage, en images (1 = désactivé).
     var medianWindow: Int {
@@ -183,9 +188,10 @@ final class AppSettings {
         let d = GazeParameters()
         smoothingMinCutoff = d.minCutoff
         smoothingBeta = d.beta
-        fixationDuration = d.fixationDuration
-        fixationDispersion = d.fixationDispersion
         medianWindow = d.medianWindow
+        jumpThreshold = d.jumpThreshold
+        jumpConfirmFrames = d.jumpConfirmFrames
+        fixationMemory = d.fixationMemory
     }
 
     /// λ en échelle logarithmique, pour un curseur.
@@ -196,8 +202,8 @@ final class AppSettings {
 
     var gazeParameters: GazeParameters {
         GazeParameters(minCutoff: smoothingMinCutoff, beta: smoothingBeta, derivativeCutoff: 1.0,
-                       fixationDuration: fixationDuration, fixationDispersion: fixationDispersion,
-                       medianWindow: medianWindow)
+                       medianWindow: medianWindow, jumpThreshold: jumpThreshold,
+                       jumpConfirmFrames: jumpConfirmFrames, fixationMemory: fixationMemory)
     }
 
     var calibrationPlan: CalibrationPlan {
@@ -244,9 +250,10 @@ final class AppSettings {
             Key.showGazePoint: true,
             Key.smoothingMinCutoff: GazeParameters().minCutoff,
             Key.smoothingBeta: GazeParameters().beta,
-            Key.fixationDuration: GazeParameters().fixationDuration,
-            Key.fixationDispersion: GazeParameters().fixationDispersion,
             Key.medianWindow: GazeParameters().medianWindow,
+            Key.jumpThreshold: GazeParameters().jumpThreshold,
+            Key.jumpConfirmFrames: GazeParameters().jumpConfirmFrames,
+            Key.fixationMemory: GazeParameters().fixationMemory,
         ])
         hasCompletedOnboarding = defaults.bool(forKey: Key.hasCompletedOnboarding)
         mirrorPreview = defaults.bool(forKey: Key.mirrorPreview)
@@ -275,8 +282,9 @@ final class AppSettings {
         showGazePoint = defaults.bool(forKey: Key.showGazePoint)
         smoothingMinCutoff = defaults.double(forKey: Key.smoothingMinCutoff)
         smoothingBeta = defaults.double(forKey: Key.smoothingBeta)
-        fixationDuration = defaults.double(forKey: Key.fixationDuration)
-        fixationDispersion = defaults.double(forKey: Key.fixationDispersion)
         medianWindow = min(max(defaults.integer(forKey: Key.medianWindow), 1), 15)
+        jumpThreshold = defaults.double(forKey: Key.jumpThreshold)
+        jumpConfirmFrames = min(max(defaults.integer(forKey: Key.jumpConfirmFrames), 1), 10)
+        fixationMemory = min(max(defaults.integer(forKey: Key.fixationMemory), 5), 300)
     }
 }

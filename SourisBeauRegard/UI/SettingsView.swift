@@ -60,14 +60,14 @@ struct SettingsView: View {
                     Slider(value: $settings.smoothingBeta, in: 0...0.02)
                     Text(String(format: "%.4f", settings.smoothingBeta)).monospacedDigit()
                 }
-                LabeledContent("Fixation : durée (s)") {
-                    Slider(value: $settings.fixationDuration, in: 0.05...0.6)
-                    Text(String(format: "%.2f", settings.fixationDuration)).monospacedDigit()
+                LabeledContent("Stabilité : seuil de saut (pt)") {
+                    Slider(value: $settings.jumpThreshold, in: 60...500)
+                    Text(String(format: "%.0f", settings.jumpThreshold)).monospacedDigit()
                 }
-                LabeledContent("Fixation : dispersion (pt)") {
-                    Slider(value: $settings.fixationDispersion, in: 20...300)
-                    Text(String(format: "%.0f", settings.fixationDispersion)).monospacedDigit()
-                }
+                Stepper("Stabilité : confirmation \(settings.jumpConfirmFrames) image(s)",
+                        value: $settings.jumpConfirmFrames, in: 1...10)
+                Stepper("Stabilité : mémoire \(String(format: "%.1f", Double(settings.fixationMemory) / 30)) s",
+                        value: $settings.fixationMemory, in: 10...300, step: 10)
                 Stepper("Filtre médian : \(settings.medianWindow) image(s)",
                         value: $settings.medianWindow, in: 1...15)
                 Button("Valeurs par défaut") { settings.resetSmoothing() }

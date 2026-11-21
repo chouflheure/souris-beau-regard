@@ -225,6 +225,8 @@ private struct GazeSection: View {
                 ValueRow("Clics appris / ignorés", "\(appState.clicksAccepted) / \(appState.clicksRejected)"
                          + (appState.calibration?.implicitSamples.map { " · \($0.count) mesures" } ?? ""))
                 ValueRow("Écart au dernier clic", appState.lastClickError.map { String(format: "%.0f pt", $0) } ?? "—")
+                ValueRow("Stabilisation : bruit / sauts", (appState.stabilizerNoise.map { String(format: "%.0f pt", $0) } ?? "—")
+                         + " / \(appState.gazeJumpCount)")
                 ValueRow("Bruit du regard (1 s)", appState.gazeSpread.map { String(format: "%.0f pt", $0) } ?? "—")
                 ValueRow("Relances caméra", "\(appState.cameraRestarts)")
                 if let gaze = appState.gaze {
