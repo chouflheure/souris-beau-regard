@@ -17,6 +17,25 @@ struct SettingsView: View {
                 }
                 ModelControls()
             }
+            Section("Ciblage (accessibilité)") {
+                Toggle("Surligner l'élément regardé", isOn: $settings.targetingEnabled)
+                LabeledContent("Rayon d'accroche (pt)") {
+                    Slider(value: $settings.snapRadius, in: 30...300)
+                    Text(String(format: "%.0f", settings.snapRadius)).monospacedDigit()
+                }
+                LabeledContent("Délai avant changement (ms)") {
+                    Slider(value: $settings.targetHysteresis, in: 0...0.5)
+                    Text(String(format: "%.0f", settings.targetHysteresis * 1000)).monospacedDigit()
+                }
+                LabeledContent("Recherches par seconde") {
+                    Slider(value: $settings.targetingRate, in: 2...30, step: 1)
+                    Text(String(format: "%.0f", settings.targetingRate)).monospacedDigit()
+                }
+                LabeledContent("Taille max. d'une cible (% écran)") {
+                    Slider(value: $settings.maxTargetFraction, in: 0.02...0.5)
+                    Text(String(format: "%.0f", settings.maxTargetFraction * 100)).monospacedDigit()
+                }
+            }
             Section("Lissage") {
                 LabeledContent("Coupure minimale (Hz)") {
                     Slider(value: $settings.smoothingMinCutoff, in: 0.05...3)

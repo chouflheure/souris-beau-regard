@@ -106,6 +106,39 @@ final class CameraService: NSObject, @unchecked Sendable, AVCaptureVideoDataOutp
         }
     }
 
+    private var runtimeErrorObserver: (any NSObjectProtocol)?
+
+    override init() {
+        super.init()
+        // Erreur d'exécution de la capture (caméra débranchée, prise par une autre app…) : relance.
+        runtimeErrorObserver = NotificationCenter.default.addObserver(
+            forName: .AVCaptureSessionRuntimeError, object: session, queue: nil
+        ) { [weak self] _ in
+            self?.restart()
+        }
+    }
+
+    deinit {
+        if let runtimeErrorObserver { NotificationCenter.default.removeObserver(runtimeErrorObserver) }
+    }
+
+    /// Démonte et reconfigure entièrement la session (quand une simple relance ne suffit pas).
+    func rebuild() {
+        queue.async {
+            if self.session.isRunning { self.session.stopRunning() }
+            self.session.beginConfiguration()
+            for input in self.session.inputs { self.session.removeInput(input) }
+            for output in self.session.outputs { self.session.removeOutput(output) }
+            self.session.commitConfiguration()
+            self.configuredInfo = nil
+            self.lastFrameTime = nil
+            self.smoothedFPS = 0
+            if (try? self.configureIfNeeded()) != nil {
+                self.session.startRunning()
+            }
+        }
+    }
+
     /// Arrête puis relance la capture (caméra figée, réveil de veille, erreur d'exécution).
     func restart() {
         queue.async {

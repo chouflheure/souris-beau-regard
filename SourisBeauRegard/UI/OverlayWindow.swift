@@ -22,6 +22,15 @@ final class OverlayModel {
     var status: GazeDisplayStatus = .tracking
     /// Point à regarder pendant un recentrage (coordonnées de la vue).
     var recenterTarget: CGPoint?
+    /// Cadre de la cible visée (coordonnées de la vue), surligné.
+    var targetFrame: CGRect?
+    /// Dessiner le point de regard même quand une cible est surlignée.
+    var showGazeWithTarget = true
+}
+
+/// Panneau qui ne se laisse pas repousser sous la barre des menus.
+final class OverlayPanel: NSPanel {
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
 }
 
 /// Fenêtre transparente au-dessus de tout, sur tous les bureaux et en plein écran,
@@ -45,7 +54,7 @@ final class OverlayWindowController {
             panel.orderFrontRegardless()
             return
         }
-        let panel = NSPanel(contentRect: frame,
+        let panel = OverlayPanel(contentRect: frame,
                             styleMask: [.borderless, .nonactivatingPanel],
                             backing: .buffered,
                             defer: false)
@@ -80,6 +89,12 @@ final class OverlayWindowController {
         }
     }
 
+    /// `frame` en coordonnées Quartz globales ; `nil` : pas de cible.
+    func update(target frame: CGRect?, showGazeWithTarget: Bool) {
+        model.targetFrame = frame.map { $0.offsetBy(dx: -screenFrameQuartz.minX, dy: -screenFrameQuartz.minY) }
+        model.showGazeWithTarget = showGazeWithTarget
+    }
+
     func update(gaze point: CGPoint?, status: GazeDisplayStatus) {
         model.gazePoint = point.map {
             CGPoint(x: $0.x - screenFrameQuartz.minX, y: $0.y - screenFrameQuartz.minY)
@@ -101,8 +116,15 @@ private struct OverlayView: View {
                 context.draw(Text("Regardez ce point").font(.headline).foregroundStyle(Color.cyan),
                              at: CGPoint(x: t.x, y: t.y + 40))
             }
+            if let f = model.targetFrame {
+                let rect = f.insetBy(dx: -4, dy: -4)
+                let shape = Path(roundedRect: rect, cornerRadius: min(8, rect.height / 2))
+                context.fill(shape, with: .color(.accentColor.opacity(0.12)))
+                context.stroke(shape, with: .color(.accentColor.opacity(0.95)), lineWidth: 3)
+                if !model.showGazeWithTarget { return }
+            }
             guard let p = model.gazePoint else { return }
-            let r: CGFloat = 14
+            let r: CGFloat = model.targetFrame == nil ? 14 : 8
             let circle = Path(ellipseIn: CGRect(x: p.x - r, y: p.y - r, width: 2 * r, height: 2 * r))
             switch model.status {
             case .tracking, .fixating:

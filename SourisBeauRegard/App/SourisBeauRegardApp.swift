@@ -6,9 +6,11 @@ struct SourisBeauRegardApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {
-        MenuBarExtra("Souris beau regard", systemImage: "eye") {
+        MenuBarExtra {
             MenuContent()
                 .environment(AppState.shared)
+        } label: {
+            MenuBarIcon(appState: AppState.shared)
         }
 
         Settings {
@@ -25,12 +27,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
+/// Icône de la barre des menus, qui reflète l'état du suivi.
+struct MenuBarIcon: View {
+    let appState: AppState
+
+    var body: some View {
+        Image(systemName: appState.menuBarSymbol)
+            .accessibilityLabel("Souris beau regard")
+    }
+}
+
 /// Contenu du menu de la barre des menus.
 struct MenuContent: View {
     @Environment(AppState.self) private var appState
 
     var body: some View {
         @Bindable var settings = appState.settings
+        Text(appState.gazeStatusText)
         Text(appState.isCameraRunning ? "Caméra : active" : "Caméra : arrêtée")
         if let validation = appState.calibration?.validation {
             Text("Calibration : erreur moyenne \(Int(validation.meanError.rounded())) pt")

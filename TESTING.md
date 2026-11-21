@@ -145,3 +145,32 @@ L'ancienne calibration n'est plus lue : **recalibrer**.
 - [ ] Le raccourci ⌃⌥R n'est pas tapé dans l'app active.
 
 À rapporter : erreur de validation, modèle choisi, et si le point reste juste après un déplacement.
+
+### Corrections avant l'étape 3
+- **Décalage** : sur un écran à encoche, la zone de dessin de la calibration excluait le haut de l'écran,
+  donc les points s'affichaient plus bas que les cibles enregistrées (décalage vertical appris par le modèle).
+  Corrigé : **recalibrer** pour en profiter. S'il reste un décalage, ⌃⌥R.
+- **Regard perdu sans retour** : macOS mettait l'app en sommeil (App Nap) faute de fenêtre visible ;
+  l'app le lui interdit maintenant pendant le suivi. La caméra est aussi reconstruite si une relance ne suffit pas,
+  et son démarrage est réessayé s'il a échoué.
+- L'icône de la barre des menus montre l'état : œil plein = suivi, œil barré = regard perdu ;
+  la première ligne du menu en donne la raison.
+
+## Étape 3 — Ciblage
+
+Prérequis : Accessibilité autorisée (écran d'accueil), calibration faite, *Réglages ▸ Ciblage ▸ Surligner l'élément regardé* coché.
+
+- [ ] **Finder** : regarder un bouton de la barre d'outils, un élément de la barre latérale ou un fichier :
+      il est entouré d'un rectangle bleu arrondi en moins de 300 ms.
+- [ ] **Réglages Système** : idem sur les éléments de la colonne de gauche, les boutons et les interrupteurs.
+- [ ] **Safari** : idem sur les liens et les boutons d'une page.
+- [ ] Pas de clignotement entre deux boutons voisins quand on regarde entre les deux.
+- [ ] Regarder une zone vide (bureau, texte sans lien) : pas de rectangle, seulement le cercle du regard.
+- [ ] Le rectangle n'entoure jamais une fenêtre entière ni toute une page web.
+- [ ] La vraie souris marche normalement (le surlignage ne bloque aucun clic).
+- [ ] *Débogage ▸ Ciblage* : rôle et titre de la cible, nombre d'éléments trouvés, durée de recherche (en ms).
+- [ ] Chrome ou une app Electron (si installé) : les liens et boutons sont aussi surlignés.
+
+Réglages utiles : rayon d'accroche (120 pt), délai avant changement (150 ms), taille max. d'une cible.
+
+À rapporter : apps où ça marche ou pas, durée de recherche typique, et tout clignotement.

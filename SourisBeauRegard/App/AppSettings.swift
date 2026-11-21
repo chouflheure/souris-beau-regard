@@ -24,6 +24,11 @@ final class AppSettings {
         static let modelChoice = "gaze.modelChoice"
         static let calibrationGridSize = "calibration.gridSize"
         static let calibrationExtraPoses = "calibration.extraPoses"
+        static let targetingEnabled = "targeting.enabled"
+        static let snapRadius = "targeting.snapRadius"
+        static let targetHysteresis = "targeting.hysteresis"
+        static let targetingRate = "targeting.rate"
+        static let maxTargetFraction = "targeting.maxTargetFraction"
         static let trainOnValidation = "calibration.trainOnValidation"
         static let trackingEnabled = "gaze.trackingEnabled"
         static let showGazePoint = "overlay.showGazePoint"
@@ -78,6 +83,29 @@ final class AppSettings {
     /// Grille de calibration n×n (3 = 9 points, 4 = 16, 5 = 25).
     var calibrationGridSize: Int {
         didSet { defaults.set(calibrationGridSize, forKey: Key.calibrationGridSize) }
+    }
+    /// Surligner l'élément cliquable le plus proche du regard (accessibilité).
+    var targetingEnabled: Bool {
+        didSet {
+            defaults.set(targetingEnabled, forKey: Key.targetingEnabled)
+            onGazeDisplayChange?()
+        }
+    }
+    /// Rayon d'accroche autour du regard (points écran).
+    var snapRadius: Double {
+        didSet { defaults.set(snapRadius, forKey: Key.snapRadius) }
+    }
+    /// Durée pendant laquelle une nouvelle cible doit rester la plus proche avant de la retenir (s).
+    var targetHysteresis: Double {
+        didSet { defaults.set(targetHysteresis, forKey: Key.targetHysteresis) }
+    }
+    /// Recherches de cible par seconde.
+    var targetingRate: Double {
+        didSet { defaults.set(targetingRate, forKey: Key.targetingRate) }
+    }
+    /// Taille maximale d'une cible, en fraction de l'aire de l'écran (au-delà : conteneur ignoré).
+    var maxTargetFraction: Double {
+        didSet { defaults.set(maxTargetFraction, forKey: Key.maxTargetFraction) }
     }
     /// Positions de tête supplémentaires pendant la calibration (0…4).
     var calibrationExtraPoses: Int {
@@ -173,6 +201,11 @@ final class AppSettings {
             Key.modelChoice: "auto",
             Key.calibrationGridSize: 3,
             Key.calibrationExtraPoses: 2,
+            Key.targetingEnabled: true,
+            Key.snapRadius: 120.0,
+            Key.targetHysteresis: 0.15,
+            Key.targetingRate: 15.0,
+            Key.maxTargetFraction: 0.15,
             Key.trainOnValidation: true,
             Key.trackingEnabled: true,
             Key.showGazePoint: true,
@@ -195,6 +228,11 @@ final class AppSettings {
         calibrationGridSize = min(max(defaults.integer(forKey: Key.calibrationGridSize), 3), 5)
         trainOnValidation = defaults.bool(forKey: Key.trainOnValidation)
         calibrationExtraPoses = min(max(defaults.integer(forKey: Key.calibrationExtraPoses), 0), 4)
+        targetingEnabled = defaults.bool(forKey: Key.targetingEnabled)
+        snapRadius = defaults.double(forKey: Key.snapRadius)
+        targetHysteresis = defaults.double(forKey: Key.targetHysteresis)
+        targetingRate = min(max(defaults.double(forKey: Key.targetingRate), 2), 30)
+        maxTargetFraction = defaults.double(forKey: Key.maxTargetFraction)
         trackingEnabled = defaults.bool(forKey: Key.trackingEnabled)
         showGazePoint = defaults.bool(forKey: Key.showGazePoint)
         smoothingMinCutoff = defaults.double(forKey: Key.smoothingMinCutoff)

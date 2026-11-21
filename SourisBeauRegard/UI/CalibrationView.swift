@@ -9,6 +9,9 @@ final class CalibrationWindow: NSWindow {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
 
+    /// Couvre tout l'écran, barre des menus et encoche comprises.
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
+
     override func keyDown(with event: NSEvent) {
         if onKey?(event) != true { super.keyDown(with: event) }
     }
@@ -118,6 +121,9 @@ struct CalibrationView: View {
                 }
             }
         }
+        // Sans cela, sur un écran à encoche, la zone de dessin exclut le haut de l'écran
+        // et les points s'affichent plus bas que les cibles enregistrées.
+        .ignoresSafeArea()
     }
 
     private var progressText: String {

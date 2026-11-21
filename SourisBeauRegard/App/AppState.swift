@@ -48,6 +48,11 @@ final class AppState {
     private(set) var recenterShortcutAvailable = false
     private(set) var calibrationSaveError: String?
 
+    // Ciblage.
+    private(set) var currentTarget: TargetCandidate?
+    private(set) var targetCandidateCount = 0
+    private(set) var targetQueryDuration: Double?
+
     private(set) var isDebugWindowOpen = false
     @ObservationIgnored private var isCameraStarting = false
     @ObservationIgnored private var engine = GazeEngine()
@@ -59,6 +64,14 @@ final class AppState {
     @ObservationIgnored private var recenterStart: Double = 0
     @ObservationIgnored private var recenterSamples: [CGPoint] = []
     @ObservationIgnored private var saveTask: Task<Void, Never>?
+    @ObservationIgnored private let targetFinder = AXTargetFinder()
+    @ObservationIgnored private var targetSelector = TargetSelector()
+    @ObservationIgnored private(set) var targetHistory = TargetHistory()
+    @ObservationIgnored private var lastTargetQuery: Double = 0
+    @ObservationIgnored private var lastCameraStart: Double = 0
+    @ObservationIgnored private var recentStalls: [Double] = []
+    /// Empêche App Nap de ralentir l'app pendant le suivi (app de barre des menus sans fenêtre visible).
+    @ObservationIgnored private var activity: (any NSObjectProtocol)?
 
     /// Vrai pendant les tests unitaires (l'app hôte ne doit alors rien ouvrir).
     static var isRunningTests: Bool {
@@ -84,6 +97,7 @@ final class AppState {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(1))
                 self?.checkCameraStall()
+                self?.permissions.refresh()
             }
         }
         screenObserver = NotificationCenter.default.addObserver(
@@ -94,11 +108,21 @@ final class AppState {
     }
 
     private func checkCameraStall() {
-        guard isCameraRunning else { return }
         let now = ProcessInfo.processInfo.systemUptime
-        if now - lastFrameArrival > Self.cameraStallTimeout {
-            cameraRestarts += 1
-            lastFrameArrival = now
+        // Démarrage raté (caméra occupée au lancement…) : on réessaie toutes les 3 s.
+        if cameraNeeded, !isCameraRunning, !isCameraStarting, now - lastCameraStart > 3 {
+            updateCameraState()
+            return
+        }
+        guard isCameraRunning, now - lastFrameArrival > Self.cameraStallTimeout else { return }
+        cameraRestarts += 1
+        lastFrameArrival = now
+        recentStalls = recentStalls.filter { now - $0 < 15 } + [now]
+        // Deuxième blocage rapproché : une simple relance ne suffit pas, on reconstruit la session.
+        if recentStalls.count >= 2 {
+            recentStalls = []
+            camera.rebuild()
+        } else {
             camera.restart()
         }
     }
@@ -170,7 +194,7 @@ final class AppState {
 
     private func updateOverlay() {
         guard !Self.isRunningTests else { return }
-        if isTrackingActive, settings.showGazePoint, let calibration,
+        if isTrackingActive, settings.showGazePoint || settings.targetingEnabled, let calibration,
            let screen = ScreenGeometry.screen(matchingQuartzFrame: calibration.screenFrame) {
             if !overlay.isVisible || overlay.displayedScreenFrame != ScreenGeometry.quartzFrame(of: screen) {
                 overlay.show(on: screen)
@@ -334,7 +358,10 @@ final class AppState {
             Task { await startCamera() }
         } else if isCameraRunning {
             camera.stop()
+            endActivity()
             isCameraRunning = false
+            currentTarget = nil
+            targetSelector.reset()
             lastFrame = nil
             lastFeatures = nil
             gaze = nil
@@ -342,7 +369,20 @@ final class AppState {
         }
     }
 
+    private func beginActivity() {
+        guard activity == nil else { return }
+        activity = ProcessInfo.processInfo.beginActivity(
+            options: [.userInitiated, .latencyCritical],
+            reason: "Suivi du regard en continu")
+    }
+
+    private func endActivity() {
+        if let activity { ProcessInfo.processInfo.endActivity(activity) }
+        activity = nil
+    }
+
     private func startCamera() async {
+        lastCameraStart = ProcessInfo.processInfo.systemUptime
         defer { isCameraStarting = false }
         permissions.refresh()
         if permissions.camera == .notDetermined {
@@ -356,6 +396,7 @@ final class AppState {
             cameraInfo = try await camera.start()
             cameraError = nil
             isCameraRunning = true
+            beginActivity()
             lastFrameArrival = ProcessInfo.processInfo.systemUptime
             // Le besoin a pu disparaître pendant le démarrage.
             if !cameraNeeded { updateCameraState() }
@@ -426,10 +467,6 @@ final class AppState {
             }
         }
 
-        guard settings.showGazePoint else {
-            overlay.update(gaze: nil, status: .tracking)
-            return
-        }
         if let gaze {
             let status: GazeDisplayStatus = gaze.isOffScreen ? .offScreen
                 : gaze.fixation != nil ? .fixating : .tracking
@@ -438,5 +475,62 @@ final class AppState {
             // Regard perdu : cercle gris à la dernière position, pour ne pas « disparaître ».
             overlay.update(gaze: lastGazePoint, status: .lost)
         }
+        updateTargeting(now: now)
+    }
+
+    // MARK: - Ciblage
+
+    /// Lance une recherche de cible autour du regard (au plus `targetingRate` fois par seconde,
+    /// jamais deux à la fois) ; le résultat arrive dans `handleTargets`.
+    private func updateTargeting(now: Double) {
+        guard settings.targetingEnabled, permissions.accessibility == .granted,
+              let gaze, let calibration else {
+            if currentTarget != nil { currentTarget = nil }
+            targetSelector.reset()
+            targetHistory.record(nil, at: now)
+            overlay.update(target: nil, showGazeWithTarget: settings.showGazePoint)
+            return
+        }
+        targetSelector.hysteresis = settings.targetHysteresis
+        targetSelector.radius = CGFloat(settings.snapRadius)
+        guard now - lastTargetQuery >= 1 / settings.targetingRate else { return }
+        let screen = calibration.screenFrame
+        let query = TargetQuery(point: gaze.point, radius: CGFloat(settings.snapRadius),
+                                maxArea: screen.width * screen.height * CGFloat(settings.maxTargetFraction))
+        let started = targetFinder.query(query, completion: { [weak self] result in
+            Task { @MainActor in self?.handleTargets(result) }
+        })
+        if started { lastTargetQuery = now }
+    }
+
+    private func handleTargets(_ result: TargetQueryResult) {
+        guard isTrackingActive, settings.targetingEnabled, gaze != nil else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        let point = gaze?.point ?? result.query.point
+        currentTarget = targetSelector.update(candidates: result.candidates, gaze: point, time: now)
+        targetCandidateCount = result.candidates.count
+        targetQueryDuration = result.duration
+        targetHistory.record(currentTarget, at: now)
+        overlay.update(target: currentTarget?.frame, showGazeWithTarget: settings.showGazePoint)
+    }
+
+    // MARK: - État affiché
+
+    /// Symbole de la barre des menus : œil plein = suivi, barré = regard perdu.
+    var menuBarSymbol: String {
+        guard isTrackingActive else { return "eye" }
+        return gaze == nil ? "eye.slash" : "eye.fill"
+    }
+
+    /// Ligne d'état du menu.
+    var gazeStatusText: String {
+        if calibration == nil { return "Pas encore calibré" }
+        if !settings.trackingEnabled { return "Suivi en pause" }
+        if calibrationSession != nil { return "Calibration en cours" }
+        if let cameraError { return "Caméra : \(cameraError)" }
+        if !isCameraRunning { return "Démarrage de la caméra…" }
+        if gaze == nil { return "Regard perdu : \(gazeLossReason ?? "en attente")" }
+        if let target = currentTarget { return "Cible : \(target.title ?? target.role)" }
+        return "Regard suivi"
     }
 }

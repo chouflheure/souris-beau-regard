@@ -20,6 +20,7 @@ struct DebugView: View {
                     Legend()
                     WarningsSection()
                     GazeSection()
+                    TargetingSection()
                     MeasurementsSection()
                 }
                 .padding(16)
@@ -119,6 +120,35 @@ private struct Legend: View {
             Label("Œil", systemImage: "square").foregroundStyle(.cyan)
         }
         .font(.caption)
+    }
+}
+
+private struct TargetingSection: View {
+    @Environment(AppState.self) private var appState
+
+    var body: some View {
+        GroupBox("Ciblage") {
+            VStack(alignment: .leading, spacing: 4) {
+                if appState.permissions.accessibility != .granted {
+                    Label("Accessibilité non autorisée : pas de ciblage.", systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                        .font(.callout)
+                    Button("Autorisations…") { appState.showOnboarding() }.controlSize(.small)
+                } else if !appState.settings.targetingEnabled {
+                    Text("Ciblage désactivé dans les réglages.").foregroundStyle(.secondary).font(.callout)
+                }
+                if let target = appState.currentTarget {
+                    ValueRow("Cible", target.title.map { "\(target.role) « \($0) »" } ?? target.role)
+                    ValueRow("Cadre", String(format: "%.0f, %.0f · %.0f × %.0f",
+                                             target.frame.minX, target.frame.minY, target.frame.width, target.frame.height))
+                } else {
+                    ValueRow("Cible", "aucune")
+                }
+                ValueRow("Éléments trouvés", "\(appState.targetCandidateCount)")
+                ValueRow("Durée de recherche", appState.targetQueryDuration.map { String(format: "%.0f ms", $0 * 1000) } ?? "—")
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 }
 

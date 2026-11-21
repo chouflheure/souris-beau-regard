@@ -7,8 +7,8 @@ Tout tourne en local avec la webcam du Mac, sans réseau, et aucune image n'est 
 Une webcam donne un regard imprécis (2 à 4 cm d'erreur à l'écran). L'app ne vise donc pas un pixel
 mais l'**élément cliquable le plus proche** du regard, trouvé grâce à l'API d'accessibilité de macOS.
 
-> État : **étape 2 / 6** — autorisations, fenêtre de débogage, mesures du regard, calibration
-> 9 + 5 points, point de regard affiché par-dessus tout.
+> État : **étape 3 / 6** — autorisations, débogage, calibration, point de regard, et surlignage
+> de l'élément cliquable regardé (accessibilité).
 > Voir `TESTING.md` pour les vérifications de chaque étape.
 
 ## Prérequis
@@ -96,8 +96,8 @@ SourisBeauRegard/
 ├── Vision/       FaceAnalyzer (repères), PupilLocator (Vision / zone sombre), qualité
 ├── Gaze/         GazeFeatures, RidgeRegression, CalibrationModel/Plan/Session,
 │                 OneEuroFilter, FixationDetector, GazeEngine
-├── Targeting/    (étape 3) recherche de la cible par accessibilité
-├── Input/        (étape 4) sources de clic, envoi des événements souris
+├── Targeting/    AXTargetFinder (grille 5×5 autour du regard), choix de la cible avec hystérésis
+├── Input/        raccourcis globaux (recentrage) ; à l'étape 4 : sources de clic, événements souris
 ├── Geometry/     CoordinateSpaces : seul module de conversion Vision / AppKit / Quartz
 └── UI/           débogage, réglages, surlignage (OverlayWindow), calibration plein écran
 SourisBeauRegardTests/   tests de la logique pure
@@ -110,3 +110,12 @@ Principes :
   AppKit ni AVFoundation, et testée ;
 - capture et Vision dans `CameraService`, sur sa propre file, résultats republiés sur `@MainActor` ;
 - aucune dépendance externe, aucun appel réseau.
+
+## Ciblage
+
+Le regard ne vise pas un pixel mais l'élément cliquable le plus proche : l'app interroge l'accessibilité
+de macOS sur une grille de 5 × 5 points dans le rayon d'accroche (120 pt par défaut), remonte chaque
+élément touché jusqu'au premier ancêtre cliquable (bouton, lien, case, menu, champ, cellule, ou tout
+élément qui propose « AXPress »), et garde celui dont le centre est le plus proche du regard.
+On ne change de cible que si la nouvelle reste la plus proche 150 ms. Pour Chrome et les apps Electron,
+l'app active leur accessibilité (`AXManualAccessibility`).
