@@ -26,10 +26,12 @@ final class AppSettings {
         static let trainOnValidation = "calibration.trainOnValidation"
         static let trackingEnabled = "gaze.trackingEnabled"
         static let showGazePoint = "overlay.showGazePoint"
-        static let smoothingMinCutoff = "gaze.smoothing.minCutoff"
-        static let smoothingBeta = "gaze.smoothing.beta"
-        static let fixationDuration = "gaze.fixation.duration"
-        static let fixationDispersion = "gaze.fixation.dispersion"
+        // Clés « v2 » : les valeurs par défaut ont changé, les anciennes valeurs enregistrées sont ignorées.
+        static let smoothingMinCutoff = "gaze.smoothing.v2.minCutoff"
+        static let smoothingBeta = "gaze.smoothing.v2.beta"
+        static let medianWindow = "gaze.smoothing.v2.medianWindow"
+        static let fixationDuration = "gaze.fixation.v2.duration"
+        static let fixationDispersion = "gaze.fixation.v2.dispersion"
     }
 
     var hasCompletedOnboarding: Bool {
@@ -110,6 +112,20 @@ final class AppSettings {
     var fixationDispersion: Double {
         didSet { defaults.set(fixationDispersion, forKey: Key.fixationDispersion) }
     }
+    /// Filtre médian avant le lissage, en images (1 = désactivé).
+    var medianWindow: Int {
+        didSet { defaults.set(medianWindow, forKey: Key.medianWindow) }
+    }
+
+    /// Remet le lissage et la fixation aux valeurs par défaut.
+    func resetSmoothing() {
+        let d = GazeParameters()
+        smoothingMinCutoff = d.minCutoff
+        smoothingBeta = d.beta
+        fixationDuration = d.fixationDuration
+        fixationDispersion = d.fixationDispersion
+        medianWindow = d.medianWindow
+    }
 
     /// λ en échelle logarithmique, pour un curseur.
     var ridgeLambdaLog10: Double {
@@ -119,7 +135,8 @@ final class AppSettings {
 
     var gazeParameters: GazeParameters {
         GazeParameters(minCutoff: smoothingMinCutoff, beta: smoothingBeta, derivativeCutoff: 1.0,
-                       fixationDuration: fixationDuration, fixationDispersion: fixationDispersion)
+                       fixationDuration: fixationDuration, fixationDispersion: fixationDispersion,
+                       medianWindow: medianWindow)
     }
 
     var calibrationPlan: CalibrationPlan {
@@ -152,10 +169,11 @@ final class AppSettings {
             Key.trainOnValidation: true,
             Key.trackingEnabled: true,
             Key.showGazePoint: true,
-            Key.smoothingMinCutoff: 0.8,
-            Key.smoothingBeta: 0.006,
-            Key.fixationDuration: 0.15,
-            Key.fixationDispersion: 80.0,
+            Key.smoothingMinCutoff: GazeParameters().minCutoff,
+            Key.smoothingBeta: GazeParameters().beta,
+            Key.fixationDuration: GazeParameters().fixationDuration,
+            Key.fixationDispersion: GazeParameters().fixationDispersion,
+            Key.medianWindow: GazeParameters().medianWindow,
         ])
         hasCompletedOnboarding = defaults.bool(forKey: Key.hasCompletedOnboarding)
         mirrorPreview = defaults.bool(forKey: Key.mirrorPreview)
@@ -175,5 +193,6 @@ final class AppSettings {
         smoothingBeta = defaults.double(forKey: Key.smoothingBeta)
         fixationDuration = defaults.double(forKey: Key.fixationDuration)
         fixationDispersion = defaults.double(forKey: Key.fixationDispersion)
+        medianWindow = min(max(defaults.integer(forKey: Key.medianWindow), 1), 15)
     }
 }

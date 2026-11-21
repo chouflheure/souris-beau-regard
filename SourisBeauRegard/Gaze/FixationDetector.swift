@@ -45,6 +45,8 @@ struct FixationDetector: Sendable, Equatable {
 
     /// Ajoute un point ; renvoie le centre de la fixation en cours, ou `nil` hors fixation.
     mutating func add(_ point: CGPoint, time: Double) -> CGPoint? {
+        // Une valeur non finie rendrait la dispersion NaN et figerait la fixation pour toujours.
+        guard point.x.isFinite, point.y.isFinite, time.isFinite else { return isFixating ? centroid : nil }
         samples.append(Sample(point: point, time: time))
 
         if isFixating {

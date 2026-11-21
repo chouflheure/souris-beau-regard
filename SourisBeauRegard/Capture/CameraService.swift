@@ -106,6 +106,17 @@ final class CameraService: NSObject, @unchecked Sendable, AVCaptureVideoDataOutp
         }
     }
 
+    /// Arrête puis relance la capture (caméra figée, réveil de veille, erreur d'exécution).
+    func restart() {
+        queue.async {
+            guard self.configuredInfo != nil else { return }
+            if self.session.isRunning { self.session.stopRunning() }
+            self.lastFrameTime = nil
+            self.smoothedFPS = 0
+            self.session.startRunning()
+        }
+    }
+
     func stop() {
         queue.async {
             if self.session.isRunning { self.session.stopRunning() }

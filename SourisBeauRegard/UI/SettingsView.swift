@@ -19,21 +19,24 @@ struct SettingsView: View {
             }
             Section("Lissage") {
                 LabeledContent("Coupure minimale (Hz)") {
-                    Slider(value: $settings.smoothingMinCutoff, in: 0.05...5)
+                    Slider(value: $settings.smoothingMinCutoff, in: 0.05...3)
                     Text(String(format: "%.2f", settings.smoothingMinCutoff)).monospacedDigit()
                 }
                 LabeledContent("Réactivité (bêta)") {
-                    Slider(value: $settings.smoothingBeta, in: 0...0.05)
-                    Text(String(format: "%.3f", settings.smoothingBeta)).monospacedDigit()
+                    Slider(value: $settings.smoothingBeta, in: 0...0.02)
+                    Text(String(format: "%.4f", settings.smoothingBeta)).monospacedDigit()
                 }
                 LabeledContent("Fixation : durée (s)") {
                     Slider(value: $settings.fixationDuration, in: 0.05...0.6)
                     Text(String(format: "%.2f", settings.fixationDuration)).monospacedDigit()
                 }
                 LabeledContent("Fixation : dispersion (pt)") {
-                    Slider(value: $settings.fixationDispersion, in: 20...250)
+                    Slider(value: $settings.fixationDispersion, in: 20...300)
                     Text(String(format: "%.0f", settings.fixationDispersion)).monospacedDigit()
                 }
+                Stepper("Filtre médian : \(settings.medianWindow) image(s)",
+                        value: $settings.medianWindow, in: 1...15)
+                Button("Valeurs par défaut") { settings.resetSmoothing() }
             }
             Section("Avertissements de qualité (fenêtre de débogage)") {
                 LabeledContent("Confiance minimale") {

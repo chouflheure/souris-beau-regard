@@ -175,6 +175,14 @@ private struct GazeSection: View {
                 Button("Afficher les données de calibration") { appState.revealCalibrationFile() }
                     .controlSize(.small)
 
+                if let reason = appState.gazeLossReason {
+                    Label(reason, systemImage: "eye.slash")
+                        .foregroundStyle(.orange)
+                        .font(.callout)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                ValueRow("Bruit du regard (1 s)", appState.gazeSpread.map { String(format: "%.0f pt", $0) } ?? "—")
+                ValueRow("Relances caméra", "\(appState.cameraRestarts)")
                 if let gaze = appState.gaze {
                     ValueRow("Regard brut", String(format: "%.0f, %.0f", gaze.raw.x, gaze.raw.y))
                     ValueRow("Regard lissé", String(format: "%.0f, %.0f", gaze.smoothed.x, gaze.smoothed.y))

@@ -102,3 +102,22 @@ L'ancienne calibration n'est plus lue (mesures différentes) : **recalibrer**.
 À rapporter : erreur moyenne, en x, en y, le modèle choisi, et si possible le fichier
 `calibration.json` (débogage ▸ *Afficher les données de calibration*). Il ne contient que des nombres
 (mesures et points visés), aucune image.
+
+### Étape 2 ter — Stabilité du point de regard
+
+Corrigé : point qui sautille (clignements non filtrés, lissage trop nerveux) et point qui disparaît
+sans revenir (valeur NaN qui bloquait les filtres, panneau retiré par le système, caméra figée).
+
+- [ ] Le point tremble nettement moins ; il ne saute plus quand on cligne des yeux.
+      *Débogage ▸ Bruit du regard (1 s)* : noter la valeur en fixant un point de l'écran.
+- [ ] Il ne disparaît plus : s'il ne peut pas suivre, il reste à sa dernière position en **gris pointillé**
+      (« regard perdu »), ou en **rouge pointillé** (« hors écran ») si la prédiction sort de l'écran.
+      Dans le débogage, la raison s'affiche (visage non détecté, yeux mal vus, pupille non trouvée…).
+- [ ] Il revient dès que le visage est de nouveau bien vu.
+- [ ] Mettre le Mac en veille puis le réveiller : le suivi reprend (*Relances caméra* peut augmenter).
+- [ ] Si « Yeux fermés ou mal vus » apparaît alors que les yeux sont ouverts : baisser
+      *Réglages ▸ Ouverture des yeux minimale*.
+- [ ] *Réglages ▸ Lissage ▸ Valeurs par défaut* remet coupure 0,5 Hz, bêta 0,002, médian 5 images,
+      fixation 0,15 s / 120 pt.
+
+À rapporter : bruit du regard, fréquence du gris ou du rouge et la raison affichée.

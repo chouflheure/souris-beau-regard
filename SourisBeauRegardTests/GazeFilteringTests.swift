@@ -102,6 +102,13 @@ final class FixationDetectorTests: XCTestCase {
         XCTAssertNil(last)
     }
 
+    func testNonFinitePointIsIgnored() {
+        var d = FixationDetector(minDuration: 0.1, maxDispersion: 50)
+        for i in 0..<10 { _ = d.add(CGPoint(x: 100, y: 100), time: Double(i) / 30) }
+        XCTAssertEqual(d.add(CGPoint(x: CGFloat.nan, y: 0), time: 0.4), CGPoint(x: 100, y: 100))
+        XCTAssertNil(d.add(CGPoint(x: 600, y: 600), time: 0.45), "une saccade doit toujours terminer la fixation")
+    }
+
     func testDispersion() {
         let s = [CGPoint(x: 0, y: 0), CGPoint(x: 10, y: 5), CGPoint(x: 4, y: -5)]
             .map { FixationDetector.Sample(point: $0, time: 0) }
@@ -121,5 +128,42 @@ final class GazeEngineTests: XCTestCase {
         XCTAssertEqual(estimate?.raw, CGPoint(x: 1000, y: 0))
         XCTAssertEqual(estimate?.point.x ?? 0, 1000, accuracy: 1e-6)
         XCTAssertNotNil(estimate?.fixation)
+        XCTAssertEqual(estimate?.isOffScreen, true)
+
+        let inside = engine.process(raw: CGPoint(x: 1020, y: 10), timestamp: 1, bounds: screen)
+        XCTAssertEqual(inside?.isOffScreen, false, "5 % de marge tolérée")
+    }
+
+    func testNonFiniteInputIsRejectedAndDoesNotPoisonFilters() {
+        var engine = GazeEngine()
+        let screen = CGRect(x: 0, y: 0, width: 1000, height: 800)
+        _ = engine.process(raw: CGPoint(x: 500, y: 400), timestamp: 0, bounds: screen)
+        XCTAssertNil(engine.process(raw: CGPoint(x: CGFloat.nan, y: 400), timestamp: 0.033, bounds: screen))
+        XCTAssertNil(engine.process(raw: CGPoint(x: CGFloat.infinity, y: 400), timestamp: 0.066, bounds: screen))
+        let next = engine.process(raw: CGPoint(x: 500, y: 400), timestamp: 0.1, bounds: screen)
+        XCTAssertEqual(next?.point.x ?? .nan, 500, accuracy: 1e-6)
+        XCTAssertEqual(next?.point.y ?? .nan, 400, accuracy: 1e-6)
+    }
+
+    func testMedianRemovesIsolatedSpike() throws {
+        var engine = GazeEngine()   // filtre médian de 5 images par défaut
+        let screen = CGRect(x: 0, y: 0, width: 2000, height: 1000)
+        var maxDeviation: CGFloat = 0
+        for i in 0..<30 {
+            let spike = (i == 15 || i == 16) ? 600.0 : 0.0   // clignement mal filtré : 2 images fausses
+            let e = try XCTUnwrap(engine.process(raw: CGPoint(x: 500 + spike, y: 500), timestamp: Double(i) / 30, bounds: screen))
+            if i > 5 { maxDeviation = max(maxDeviation, abs(e.smoothed.x - 500)) }
+        }
+        XCTAssertLessThan(maxDeviation, 1, "deux images aberrantes sur cinq ne doivent pas faire bouger le point")
+    }
+
+    func testRawSpreadMeasuresNoise() throws {
+        var engine = GazeEngine()
+        let screen = CGRect(x: 0, y: 0, width: 2000, height: 1000)
+        XCTAssertNil(engine.rawSpread)
+        for i in 0..<30 {
+            _ = engine.process(raw: CGPoint(x: i.isMultiple(of: 2) ? 480 : 520, y: 500), timestamp: Double(i) / 30, bounds: screen)
+        }
+        XCTAssertEqual(try XCTUnwrap(engine.rawSpread), 20, accuracy: 1e-6)
     }
 }

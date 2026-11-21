@@ -34,12 +34,22 @@ final class AppState {
     private(set) var calibration: CalibrationModel?
     private(set) var calibrationSession: CalibrationSession?
     private(set) var gaze: GazeEstimate?
+    /// Pourquoi le regard n'est pas suivi en ce moment (affiché dans le débogage), ou `nil`.
+    private(set) var gazeLossReason: String?
+    /// Bruit du regard brut sur la dernière seconde (points).
+    private(set) var gazeSpread: Double?
+    /// Nombre de relances automatiques de la caméra (image figée).
+    private(set) var cameraRestarts = 0
     private(set) var calibrationSaveError: String?
 
     private(set) var isDebugWindowOpen = false
     @ObservationIgnored private var isCameraStarting = false
     @ObservationIgnored private var engine = GazeEngine()
     @ObservationIgnored private var lastGazeUpdate: Double = 0
+    @ObservationIgnored private var lastGazePoint: CGPoint?
+    @ObservationIgnored private var lastFrameArrival: Double = 0
+    @ObservationIgnored private var watchdogTask: Task<Void, Never>?
+    @ObservationIgnored private var screenObserver: (any NSObjectProtocol)?
     @ObservationIgnored private var saveTask: Task<Void, Never>?
 
     /// Vrai pendant les tests unitaires (l'app hôte ne doit alors rien ouvrir).
@@ -47,8 +57,10 @@ final class AppState {
         ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
     }
 
-    /// Délai sans visage après lequel le point de regard disparaît (s).
+    /// Délai sans mesure valide après lequel le point passe en « regard perdu » (s).
     private static let gazeTimeout = 0.5
+    /// Délai sans image après lequel la caméra est relancée (s).
+    private static let cameraStallTimeout = 2.0
 
     init() {
         camera.setHandler { [weak self] output in
@@ -57,12 +69,44 @@ final class AppState {
         settings.onGazeDisplayChange = { [weak self] in self?.gazeDisplayChanged() }
     }
 
+    /// Relance la caméra si elle ne livre plus d'images (veille, autre app, erreur) ;
+    /// remet le panneau de surlignage à sa place si les écrans changent.
+    private func startWatchdogs() {
+        watchdogTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                self?.checkCameraStall()
+            }
+        }
+        screenObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.screensChanged() }
+        }
+    }
+
+    private func checkCameraStall() {
+        guard isCameraRunning else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        if now - lastFrameArrival > Self.cameraStallTimeout {
+            cameraRestarts += 1
+            lastFrameArrival = now
+            camera.restart()
+        }
+    }
+
+    private func screensChanged() {
+        overlay.hide()
+        updateOverlay()
+    }
+
     // MARK: - Cycle de vie
 
     func applicationDidFinishLaunching() {
         guard !Self.isRunningTests else { return }
         permissions.refresh()
         calibration = store.load()
+        startWatchdogs()
         if !permissions.allRequiredGranted || !settings.hasCompletedOnboarding {
             showOnboarding()
         }
@@ -117,7 +161,9 @@ final class AppState {
         guard !Self.isRunningTests else { return }
         if isTrackingActive, settings.showGazePoint, let calibration,
            let screen = ScreenGeometry.screen(matchingQuartzFrame: calibration.screenFrame) {
-            if !overlay.isVisible { overlay.show(on: screen) }
+            if !overlay.isVisible || overlay.displayedScreenFrame != ScreenGeometry.quartzFrame(of: screen) {
+                overlay.show(on: screen)
+            }
         } else {
             overlay.hide()
         }
@@ -247,6 +293,7 @@ final class AppState {
             cameraInfo = try await camera.start()
             cameraError = nil
             isCameraRunning = true
+            lastFrameArrival = ProcessInfo.processInfo.systemUptime
             // Le besoin a pu disparaître pendant le démarrage.
             if !cameraNeeded { updateCameraState() }
         } catch {
@@ -257,6 +304,7 @@ final class AppState {
     private func handle(_ output: CameraOutput) {
         guard isCameraRunning else { return }
         let now = ProcessInfo.processInfo.systemUptime
+        lastFrameArrival = now
         lastFrame = output.frame
         fps = output.fps
         if let preview = output.preview, isDebugWindowOpen {
@@ -276,15 +324,50 @@ final class AppState {
 
         refitIfNeeded()
         guard isTrackingActive, let model = calibration else { return }
-        if let features {
-            engine.setParameters(settings.gazeParameters)
-            gaze = engine.process(raw: model.predict(features), timestamp: now, bounds: model.screenFrame)
-            lastGazeUpdate = now
-        } else if now - lastGazeUpdate > Self.gazeTimeout {
-            gaze = nil
-            engine.reset()
+        // Le panneau a pu être retiré par le système (changement d'écran, de bureau…).
+        if settings.showGazePoint, !overlay.isVisible { updateOverlay() }
+
+        // Clignement : les pupilles sont fausses sur ces images, on garde la dernière position.
+        let openness = [face?.leftEye?.openness, face?.rightEye?.openness].compactMap { $0 }.min() ?? 0
+        let isBlink = features != nil && openness < settings.minEyeOpenness
+        let valid = features.flatMap { f -> GazeFeatures? in
+            (isBlink || !f.vector.allSatisfy(\.isFinite)) ? nil : f
         }
-        overlay.update(gaze: settings.showGazePoint ? gaze?.point : nil,
-                       isFixating: gaze?.fixation != nil)
+
+        var estimate: GazeEstimate?
+        if let valid {
+            engine.setParameters(settings.gazeParameters)
+            estimate = engine.process(raw: model.predict(valid), timestamp: now, bounds: model.screenFrame)
+        }
+
+        if let estimate {
+            gaze = estimate
+            gazeSpread = engine.rawSpread
+            gazeLossReason = estimate.isOffScreen ? "Prédiction hors de l'écran (tête déplacée depuis la calibration ?)" : nil
+            lastGazeUpdate = now
+            lastGazePoint = estimate.point
+        } else if now - lastGazeUpdate > Self.gazeTimeout {
+            gazeLossReason = face == nil ? "Visage non détecté"
+                : isBlink ? "Yeux fermés ou mal vus (ouverture sous le seuil)"
+                : features == nil ? "Pupille non trouvée"
+                : "Mesure invalide"
+            if gaze != nil {
+                gaze = nil
+                engine.reset()
+            }
+        }
+
+        guard settings.showGazePoint else {
+            overlay.update(gaze: nil, status: .tracking)
+            return
+        }
+        if let gaze {
+            let status: GazeDisplayStatus = gaze.isOffScreen ? .offScreen
+                : gaze.fixation != nil ? .fixating : .tracking
+            overlay.update(gaze: gaze.point, status: status)
+        } else {
+            // Regard perdu : cercle gris à la dernière position, pour ne pas « disparaître ».
+            overlay.update(gaze: lastGazePoint, status: .lost)
+        }
     }
 }
