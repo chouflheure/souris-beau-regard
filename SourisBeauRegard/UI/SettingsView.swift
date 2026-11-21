@@ -9,6 +9,18 @@ struct SettingsView: View {
     var body: some View {
         @Bindable var settings = appState.settings
         Form {
+            Section("Caméra") {
+                Picker("Caméra", selection: $settings.cameraID) {
+                    Text("Automatique (intégrée)").tag(String?.none)
+                    ForEach(appState.availableCameras) { camera in
+                        Text(camera.name).tag(String?.some(camera.id))
+                    }
+                }
+                Text("Un iPhone récent utilisé comme webcam (Caméra de continuité) donne une image bien plus nette des yeux. Changer de caméra demande une nouvelle calibration.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             Section("Regard") {
                 Toggle("Suivre le regard", isOn: $settings.trackingEnabled)
                 Toggle("Afficher le point de regard", isOn: $settings.showGazePoint)
@@ -94,7 +106,10 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .frame(width: 480)
         .padding()
-        .onAppear { NSApp.activate() }
+        .onAppear {
+            NSApp.activate()
+            appState.refreshAvailableCameras()
+        }
     }
 }
 

@@ -112,6 +112,18 @@ final class TargetingTests: XCTestCase {
         XCTAssertEqual(s.update(candidates: [a, b], gaze: CGPoint(x: 175, y: 100), time: 2.2)?.id, "b")
     }
 
+    func testImmediateUpdateSkipsHysteresisAfterConfirmedJump() {
+        var s = TargetSelector(hysteresis: 0.15, radius: 120, stickiness: 40)
+        let a = target("a", x: 100, y: 100)
+        let b = target("b", x: 500, y: 100)
+        s.update(candidates: [a, b], gaze: CGPoint(x: 100, y: 100), time: 0)
+        s.update(candidates: [a, b], gaze: CGPoint(x: 100, y: 100), time: 0.2)
+        XCTAssertEqual(s.current?.id, "a")
+        XCTAssertEqual(s.update(candidates: [a, b], gaze: CGPoint(x: 500, y: 100), time: 0.25, immediate: true)?.id, "b")
+        // Sans cible à proximité, « immédiat » ne fait pas perdre la cible.
+        XCTAssertEqual(s.update(candidates: [], gaze: CGPoint(x: 900, y: 900), time: 0.3, immediate: true)?.id, "b")
+    }
+
     // MARK: Historique
 
     func testHistoryReturnsTargetInForceAtTime() {

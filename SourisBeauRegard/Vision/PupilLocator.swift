@@ -21,6 +21,11 @@ struct ImagePupilLocator: PupilLocator {
     /// L'iris mesure environ 40 % de cette largeur ; un carré un peu plus petit tient dedans.
     var irisFraction: Double = 0.3
 
+    /// Le contour de Vision est souvent trop petit et trop bas (il coupe le haut de l'iris) :
+    /// la zone de recherche est le contour agrandi autour de son centre, surtout en hauteur.
+    static let maskScaleX: CGFloat = 1.15
+    static let maskScaleY: CGFloat = 1.8
+
     func locate(eye: EyeMeasurement, pixelBuffer: CVPixelBuffer) -> CGPoint? {
         guard CVPixelBufferGetPixelFormatType(pixelBuffer) == kCVPixelFormatType_32BGRA else { return nil }
         let width = CVPixelBufferGetWidth(pixelBuffer)
@@ -30,7 +35,7 @@ struct ImagePupilLocator: PupilLocator {
         // Boîte de l'œil en pixels, un peu élargie (le contour Vision serre parfois trop).
         let eyeRect = CoordinateSpaces.visionRectToImagePixels(eye.box, imageSize: imageSize)
         let crop = eyeRect
-            .insetBy(dx: -eyeRect.width * 0.05, dy: -eyeRect.height * 0.15)
+            .insetBy(dx: -eyeRect.width * 0.15, dy: -eyeRect.height * 0.6)
             .integral
             .intersection(CGRect(x: 0, y: 0, width: width, height: height))
         guard !crop.isNull, crop.width >= 4, crop.height >= 3 else { return nil }
@@ -59,7 +64,8 @@ struct ImagePupilLocator: PupilLocator {
         let eyeWidth = GazeFeatures.corners(of: polygon).map { hypot($0.0.x - $0.1.x, $0.0.y - $0.1.y) } ?? crop.width
         let side = max(3, Int((Double(eyeWidth) * irisFraction).rounded()))
         guard let c = DarkCentroid.locateIris(gray: gray, width: cw, height: ch,
-                                              polygon: polygon, boxSide: side)
+                                              polygon: polygon, boxSide: side,
+                                              maskScaleX: Self.maskScaleX, maskScaleY: Self.maskScaleY)
         else { return nil }
         return CoordinateSpaces.imagePixelsToVision(CGPoint(x: c.x + crop.minX, y: c.y + crop.minY),
                                                     imageSize: imageSize)
@@ -127,14 +133,16 @@ enum DarkCentroid {
 extension DarkCentroid {
     /// Centre de l'iris (puis de la pupille) dans une image en niveaux de gris.
     ///
-    /// 1. Masque : le contour de l'œil rétréci de 10 % vers son centre (on évite le bord des paupières).
+    /// 1. Masque : le contour de l'œil mis à l'échelle autour de son centre (`maskScaleX/Y` ;
+    ///    agrandi en pratique, car le contour de Vision coupe souvent le haut de l'iris).
     /// 2. Le carré de côté `boxSide` dont les pixels du masque sont les plus sombres en moyenne
     ///    (images intégrales : rapide) ; au moins la moitié du carré doit être dans l'œil.
     /// 3. Dans une fenêtre un peu plus grande autour de ce carré, centroïde pondéré des pixels sous
     ///    `min + 40 % × (moyenne − min)` : la pupille si elle est visible, sinon le cœur de l'iris.
     /// - Returns: pixels de l'image recadrée (origine haut-gauche, centre des pixels à +0,5).
     static func locateIris(gray: [UInt8], width: Int, height: Int,
-                           polygon: [CGPoint]?, boxSide: Int) -> CGPoint? {
+                           polygon: [CGPoint]?, boxSide: Int,
+                           maskScaleX: CGFloat = 0.9, maskScaleY: CGFloat = 0.9) -> CGPoint? {
         let count = width * height
         guard width > 0, height > 0, gray.count == count else { return nil }
 
@@ -142,7 +150,7 @@ extension DarkCentroid {
         if let polygon, polygon.count >= 3 {
             let n = CGFloat(polygon.count)
             let c = CGPoint(x: polygon.reduce(0) { $0 + $1.x } / n, y: polygon.reduce(0) { $0 + $1.y } / n)
-            let shrunk = polygon.map { CGPoint(x: c.x + ($0.x - c.x) * 0.9, y: c.y + ($0.y - c.y) * 0.9) }
+            let shrunk = polygon.map { CGPoint(x: c.x + ($0.x - c.x) * maskScaleX, y: c.y + ($0.y - c.y) * maskScaleY) }
             var inside = 0
             for y in 0..<height {
                 for x in 0..<width {

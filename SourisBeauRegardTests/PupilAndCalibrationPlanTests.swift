@@ -66,6 +66,28 @@ final class DarkCentroidTests: XCTestCase {
         XCTAssertNil(DarkCentroid.locateIris(gray: [1, 2], width: 2, height: 2, polygon: nil, boxSide: 2))
     }
 
+    /// Cas observé : le contour de Vision est trop bas et coupe le haut de l'iris.
+    func testIrisAboveVisionContourIsFoundWithEnlargedZone() throws {
+        let w = 50, h = 30
+        var g = [UInt8](repeating: 200, count: w * h)
+        for y in 0..<h {
+            for x in 0..<w {
+                let d = hypot(Double(x) + 0.5 - 25.5, Double(y) + 0.5 - 10.5)
+                if d <= 6 { g[y * w + x] = 70 }
+                if d <= 2 { g[y * w + x] = 25 }
+            }
+        }
+        let contour = [CGPoint(x: 5, y: 18), CGPoint(x: 25, y: 12), CGPoint(x: 45, y: 18), CGPoint(x: 25, y: 24)]
+        let found = try XCTUnwrap(DarkCentroid.locateIris(gray: g, width: w, height: h, polygon: contour, boxSide: 9,
+                                                          maskScaleX: ImagePupilLocator.maskScaleX,
+                                                          maskScaleY: ImagePupilLocator.maskScaleY))
+        XCTAssertEqual(found.x, 25.5, accuracy: 1)
+        XCTAssertEqual(found.y, 10.5, accuracy: 1)
+        // Avec le contour rétréci (ancienne zone), la croix restait collée au bord du contour.
+        let old = try XCTUnwrap(DarkCentroid.locateIris(gray: g, width: w, height: h, polygon: contour, boxSide: 9))
+        XCTAssertGreaterThan(old.y, 13)
+    }
+
     func testRejectsInconsistentSize() {
         XCTAssertNil(DarkCentroid.locate(gray: [1, 2, 3], width: 2, height: 2, polygon: nil, darkFraction: 0.1))
     }

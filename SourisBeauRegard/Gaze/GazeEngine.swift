@@ -28,6 +28,8 @@ struct GazeEstimate: Sendable, Equatable {
     var timestamp: Double
     /// La prédiction brute tombe nettement hors de l'écran calibré (la tête a bougé ?).
     var isOffScreen: Bool
+    /// Un vrai changement de regard vient d'être confirmé à cette image (nouvelle fixation).
+    var jumped: Bool = false
 
     /// Point à utiliser pour viser : la fixation si elle existe, sinon le point lissé.
     var point: CGPoint { fixation ?? smoothed }
@@ -121,10 +123,12 @@ struct GazeEngine: Sendable {
 
         let smoothed = CGPoint(x: filterX.filter(Double(median.x), timestamp: timestamp),
                                y: filterY.filter(Double(median.y), timestamp: timestamp))
+        let jumpsBefore = stable.jumpCount
         let stabilized = stable.add(median)
         let fixation = stable.fixation.count >= Self.minimumFixationSamples ? stabilized : nil
         return GazeEstimate(raw: bounded, smoothed: smoothed, fixation: fixation,
-                            timestamp: timestamp, isOffScreen: offScreen)
+                            timestamp: timestamp, isOffScreen: offScreen,
+                            jumped: stable.jumpCount != jumpsBefore)
     }
 
     mutating func reset() {

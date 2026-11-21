@@ -6,6 +6,7 @@ import os
 
 /// Informations sur la caméra ouverte, pour l'affichage.
 struct CameraInfo: Sendable, Equatable {
+    var id: String
     var name: String
     var width: Int
     var height: Int
@@ -16,6 +17,12 @@ struct CameraInfo: Sendable, Equatable {
 /// `CGImage` est immuable une fois créée : la partager entre files est sûr.
 struct PreviewImage: @unchecked Sendable {
     let cgImage: CGImage
+}
+
+/// Une caméra disponible, pour le choix dans les réglages.
+struct CameraDescriptor: Sendable, Equatable, Identifiable, Hashable {
+    var id: String
+    var name: String
 }
 
 /// Recadrage d'un œil en pleine résolution, pour le débogage.
@@ -31,6 +38,8 @@ struct CameraOutput: Sendable {
     var preview: PreviewImage?
     /// Yeux gauche et droit (de l'image) agrandis, si l'aperçu est actif.
     var eyePreviews: [EyePreview] = []
+    /// Effets vidéo de macOS actifs (vérifiés toutes les 30 images ; `nil` : pas vérifié à cette image).
+    var videoEffects: [String]? = nil
     var fps: Double
 }
 
@@ -63,6 +72,7 @@ final class CameraService: NSObject, @unchecked Sendable, AVCaptureVideoDataOutp
     private struct Shared: Sendable {
         var previewEnabled = false
         var irisFraction = 0.3
+        var preferredCameraID: String?
         var handler: (@Sendable (CameraOutput) -> Void)?
     }
 
@@ -79,6 +89,8 @@ final class CameraService: NSObject, @unchecked Sendable, AVCaptureVideoDataOutp
     private var imagePupilLocator = ImagePupilLocator()
     private let ciContext = CIContext(options: [.cacheIntermediates: false])
     private var configuredInfo: CameraInfo?
+    private var device: AVCaptureDevice?
+    private var frameCounter = 0
     private var lastFrameTime: Double?
     private var smoothedFPS: Double = 0
 
@@ -90,6 +102,23 @@ final class CameraService: NSObject, @unchecked Sendable, AVCaptureVideoDataOutp
 
     func setPreviewEnabled(_ enabled: Bool) {
         shared.withLock { $0.previewEnabled = enabled }
+    }
+
+    /// Caméra à utiliser (`nil` : automatique). Prise en compte au prochain `rebuild()`.
+    func setPreferredCamera(_ id: String?) {
+        shared.withLock { $0.preferredCameraID = id }
+    }
+
+    /// Caméras disponibles : intégrée, externes, et iPhone (Caméra de continuité).
+    static func availableCameras() -> [CameraDescriptor] {
+        discoverySession().devices.map { CameraDescriptor(id: $0.uniqueID, name: $0.localizedName) }
+    }
+
+    private static func discoverySession() -> AVCaptureDevice.DiscoverySession {
+        AVCaptureDevice.DiscoverySession(
+            deviceTypes: [.builtInWideAngleCamera, .external, .continuityCamera],
+            mediaType: .video,
+            position: .unspecified)
     }
 
     func setIrisFraction(_ fraction: Double) {
@@ -169,7 +198,13 @@ final class CameraService: NSObject, @unchecked Sendable, AVCaptureVideoDataOutp
 
     private func configureIfNeeded() throws -> CameraInfo {
         if let configuredInfo { return configuredInfo }
-        guard let device = Self.pickDevice() else { throw CameraError.noCamera }
+        let preferred = shared.withLock { $0.preferredCameraID }
+        guard let device = Self.pickDevice(preferredID: preferred) else { throw CameraError.noCamera }
+        self.device = device
+        // Cadre centré recadre et zoome en suivant le visage : les mesures de position de la tête
+        // deviendraient fausses. L'app le désactive pour elle-même.
+        AVCaptureDevice.centerStageControlMode = .app
+        AVCaptureDevice.isCenterStageEnabled = false
 
         let input: AVCaptureDeviceInput
         do {
@@ -224,7 +259,8 @@ final class CameraService: NSObject, @unchecked Sendable, AVCaptureVideoDataOutp
         }
 
         let dims = CMVideoFormatDescriptionGetDimensions(device.activeFormat.formatDescription)
-        let info = CameraInfo(name: device.localizedName,
+        let info = CameraInfo(id: device.uniqueID,
+                              name: device.localizedName,
                               width: Int(dims.width),
                               height: Int(dims.height),
                               frameRate: frameRate)
@@ -233,13 +269,22 @@ final class CameraService: NSObject, @unchecked Sendable, AVCaptureVideoDataOutp
     }
 
     /// Caméra intégrée en priorité, sinon la première caméra externe.
-    private static func pickDevice() -> AVCaptureDevice? {
-        let discovery = AVCaptureDevice.DiscoverySession(
-            deviceTypes: [.builtInWideAngleCamera, .external],
-            mediaType: .video,
-            position: .unspecified)
-        let devices = discovery.devices
+    /// La caméra choisie si elle est branchée, sinon l'intégrée, sinon la première trouvée.
+    private static func pickDevice(preferredID: String?) -> AVCaptureDevice? {
+        let devices = discoverySession().devices
+        if let preferredID, let chosen = devices.first(where: { $0.uniqueID == preferredID }) { return chosen }
         return devices.first(where: { $0.deviceType == .builtInWideAngleCamera }) ?? devices.first
+    }
+
+    /// Effets vidéo de macOS qui modifient l'image (Centre de contrôle ▸ Effets vidéo).
+    private func activeVideoEffects() -> [String] {
+        guard let device else { return [] }
+        var effects: [String] = []
+        if device.isPortraitEffectActive { effects.append("Portrait") }
+        if device.isStudioLightActive { effects.append("Studio Light") }
+        if device.isCenterStageActive { effects.append("Cadre centré") }
+        if AVCaptureDevice.reactionEffectsEnabled { effects.append("Réactions") }
+        return effects
     }
 
     // MARK: - Images (sur `queue`)
@@ -284,7 +329,9 @@ final class CameraService: NSObject, @unchecked Sendable, AVCaptureVideoDataOutp
                 eye.flatMap { makeEyePreview(pixelBuffer, box: $0.box) }
             }
         }
-        handler(CameraOutput(frame: frame, preview: preview, eyePreviews: eyes, fps: smoothedFPS))
+        frameCounter += 1
+        let effects = frameCounter % 30 == 1 ? activeVideoEffects() : nil
+        handler(CameraOutput(frame: frame, preview: preview, eyePreviews: eyes, videoEffects: effects, fps: smoothedFPS))
     }
 
     private func updateFPS(timestamp: Double) {

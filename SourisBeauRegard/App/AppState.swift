@@ -29,6 +29,10 @@ final class AppState {
     private(set) var eyePreviews: [EyePreview] = []
     private(set) var fps: Double = 0
     private(set) var cameraInfo: CameraInfo?
+    /// Caméras disponibles (rafraîchi à l'ouverture des réglages et du débogage).
+    private(set) var availableCameras: [CameraDescriptor] = []
+    /// Effets vidéo de macOS actifs sur la caméra (Portrait, Studio Light, Réactions…).
+    private(set) var videoEffects: [String] = []
     private(set) var cameraError: String?
     private(set) var isCameraRunning = false
 
@@ -80,6 +84,8 @@ final class AppState {
     @ObservationIgnored private var targetSelector = TargetSelector()
     @ObservationIgnored private(set) var targetHistory = TargetHistory()
     @ObservationIgnored private var lastTargetQuery: Double = 0
+    /// La prochaine réponse de recherche suit un saut confirmé du regard.
+    @ObservationIgnored private var pendingImmediateTarget = false
     @ObservationIgnored private var lastCameraStart: Double = 0
     @ObservationIgnored private var recentStalls: [Double] = []
     /// Mesures valides de la dernière seconde, pour apprendre des clics.
@@ -103,6 +109,8 @@ final class AppState {
             Task { @MainActor in self?.handle(output) }
         }
         settings.onGazeDisplayChange = { [weak self] in self?.gazeDisplayChanged() }
+        settings.onCameraChange = { [weak self] in self?.cameraChoiceChanged() }
+        camera.setPreferredCamera(settings.cameraID)
     }
 
     /// Relance la caméra si elle ne livre plus d'images (veille, autre app, erreur) ;
@@ -182,6 +190,7 @@ final class AppState {
     }
 
     func showDebugWindow() {
+        refreshAvailableCameras()
         isDebugWindowOpen = true
         updateCameraState()
         windows.show(id: "debug", title: "Débogage — Souris beau regard",
@@ -404,7 +413,8 @@ final class AppState {
     private func finishCalibration(_ model: CalibrationModel?) {
         calibrationWindow.close()
         calibrationSession = nil
-        if let model {
+        if var model {
+            model.cameraID = cameraInfo?.id
             calibration = model
             engine.reset()
             gaze = nil
@@ -473,6 +483,27 @@ final class AppState {
 
     // MARK: - Caméra
 
+    func refreshAvailableCameras() {
+        availableCameras = CameraService.availableCameras()
+    }
+
+    private func cameraChoiceChanged() {
+        camera.setPreferredCamera(settings.cameraID)
+        guard isCameraRunning else { return }
+        lastFrameArrival = ProcessInfo.processInfo.systemUptime
+        engine.reset()
+        blinkDetector.reset()
+        camera.rebuild()
+        // Le nom et la résolution sont mis à jour au prochain démarrage ; on les efface d'ici là.
+        cameraInfo = nil
+    }
+
+    /// La calibration a été faite avec une autre caméra que celle utilisée maintenant.
+    var calibrationCameraMismatch: Bool {
+        guard let calibrated = calibration?.cameraID, let current = cameraInfo?.id else { return false }
+        return calibrated != current
+    }
+
     /// La caméra tourne tant que quelqu'un en a besoin.
     private var cameraNeeded: Bool {
         isDebugWindowOpen || calibrationSession != nil || trainingSession != nil || isTrackingActive
@@ -539,6 +570,7 @@ final class AppState {
         lastFrameArrival = now
         lastFrame = output.frame
         fps = output.fps
+        if let effects = output.videoEffects, effects != videoEffects { videoEffects = effects }
         if let preview = output.preview, isDebugWindowOpen {
             previewImage = preview.cgImage
             eyePreviews = output.eyePreviews
@@ -638,7 +670,9 @@ final class AppState {
         targetSelector.hysteresis = settings.targetHysteresis
         targetSelector.radius = CGFloat(settings.snapRadius)
         targetSelector.stickiness = CGFloat(settings.targetStickiness)
-        guard now - lastTargetQuery >= 1 / settings.targetingRate else { return }
+        // Nouveau regard confirmé : recherche tout de suite, sans attendre la cadence.
+        if gaze.jumped { pendingImmediateTarget = true }
+        guard gaze.jumped || now - lastTargetQuery >= 1 / settings.targetingRate else { return }
         let screen = calibration.screenFrame
         var query = TargetQuery(point: gaze.point, radius: CGFloat(settings.snapRadius),
                                 maxArea: screen.width * screen.height * CGFloat(settings.maxTargetFraction))
@@ -654,7 +688,10 @@ final class AppState {
         guard isTrackingActive, settings.targetingEnabled, gaze != nil else { return }
         let now = ProcessInfo.processInfo.systemUptime
         let point = gaze?.point ?? result.query.point
-        currentTarget = targetSelector.update(candidates: result.candidates, gaze: point, time: now)
+        let immediate = pendingImmediateTarget
+        pendingImmediateTarget = false
+        currentTarget = targetSelector.update(candidates: result.candidates, gaze: point, time: now,
+                                              immediate: immediate)
         targetCandidateCount = result.candidates.count
         targetQueryDuration = result.duration
         targetHistory.record(currentTarget, at: now)
@@ -672,6 +709,8 @@ final class AppState {
     /// Ligne d'état du menu.
     var gazeStatusText: String {
         if calibration == nil { return "Pas encore calibré" }
+        if calibration?.needsRecalibration == true { return "Recalibrez : décalage anormal ou mesures changées" }
+        if calibrationCameraMismatch { return "Recalibrez : calibration faite avec une autre caméra" }
         if !settings.trackingEnabled { return "Suivi en pause" }
         if calibrationSession != nil { return "Calibration en cours" }
         if let cameraError { return "Caméra : \(cameraError)" }

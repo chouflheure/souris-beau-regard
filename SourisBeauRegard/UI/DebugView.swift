@@ -106,6 +106,20 @@ private struct EyeZoom: View {
                     contour.addLines(eye.contour.map(toView))
                     contour.closeSubpath()
                     context.stroke(contour, with: .color(.yellow.opacity(0.8)), lineWidth: 1)
+                    // Zone de recherche de l'iris : contour agrandi (pointillé).
+                    if eye.contour.count >= 3 {
+                        let n = CGFloat(eye.contour.count)
+                        let c = CGPoint(x: eye.contour.reduce(0) { $0 + $1.x } / n,
+                                        y: eye.contour.reduce(0) { $0 + $1.y } / n)
+                        let zone = eye.contour.map {
+                            toView(CGPoint(x: c.x + ($0.x - c.x) * ImagePupilLocator.maskScaleX,
+                                           y: c.y + ($0.y - c.y) * ImagePupilLocator.maskScaleY))
+                        }
+                        var zonePath = Path()
+                        zonePath.addLines(zone)
+                        zonePath.closeSubpath()
+                        context.stroke(zonePath, with: .color(.cyan.opacity(0.7)), style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                    }
                     if let v = eye.visionPupil.map(toView) {
                         context.fill(Path(ellipseIn: CGRect(x: v.x - 4, y: v.y - 4, width: 8, height: 8)), with: .color(.red))
                     }
@@ -327,6 +341,22 @@ private struct WarningsSection: View {
                                             fps: appState.fps,
                                             thresholds: appState.settings.qualityThresholds)
         VStack(alignment: .leading, spacing: 6) {
+            if !appState.videoEffects.isEmpty {
+                Label("Effets vidéo actifs : \(appState.videoEffects.joined(separator: ", ")). Ils modifient l'image : désactivez-les (Centre de contrôle ▸ Effets vidéo).",
+                      systemImage: "wand.and.stars")
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if appState.calibration?.needsRecalibration == true {
+                Label("Décalage anormal ou mesures changées depuis la calibration : recalibrez.",
+                      systemImage: "scope")
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if appState.calibrationCameraMismatch {
+                Label("Calibration faite avec une autre caméra : recalibrez.", systemImage: "camera")
+                    .foregroundStyle(.orange)
+            }
             if let error = appState.cameraError {
                 Label(error, systemImage: "video.slash")
                     .foregroundStyle(.red)

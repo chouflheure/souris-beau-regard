@@ -298,6 +298,28 @@ final class RidgeRegressionTests: XCTestCase {
         XCTAssertEqual(model.learn(from: [], target: .zero, maxError: nil), .rejected)
     }
 
+    func testHugeResidualIsRejectedAndFlagsRecalibration() throws {
+        var model = try trainedModel()
+        XCTAssertTrue(model.isCompatibleWithCurrentMeasures)
+        XCTAssertFalse(model.needsRecalibration)
+        // Écart de 700 pt : même si on autorise 800 pt, au-delà de 500 pt c'est une calibration à refaire.
+        let looked = simulatedSamples(points: [CGPoint(x: 400, y: 300)], perPoint: 6).map(\.features)
+        XCTAssertEqual(model.learn(from: looked, target: CGPoint(x: 400, y: 1000), maxError: 800), .rejected)
+        model.offset = CGPoint(x: -443, y: 754)
+        XCTAssertTrue(model.needsRecalibration)
+    }
+
+    func testCalibrationFromOlderPupilAlgorithmIsNotLoaded() throws {
+        var model = try trainedModel()
+        model.pupilAlgorithm = PupilLocatorKind.imageAlgorithmVersion - 1
+        XCTAssertFalse(model.isCompatibleWithCurrentMeasures)
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = CalibrationStore(url: dir.appendingPathComponent("calibration.json"))
+        try store.save(model)
+        XCTAssertNil(store.load())
+    }
+
     func testRecenterResetsHistoryWithoutTraining() throws {
         var model = try trainedModel()
         for _ in 0..<3 {

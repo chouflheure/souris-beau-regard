@@ -70,8 +70,11 @@ struct TargetSelector: Sendable, Equatable {
         self.stickiness = stickiness
     }
 
+    /// - Parameter immediate: le regard vient de changer d'endroit (saut confirmé par la stabilisation) :
+    ///   on change de cible sans attendre l'hystérésis, déjà « payée » par la confirmation du saut.
     @discardableResult
-    mutating func update(candidates: [TargetCandidate], gaze: CGPoint, time: Double) -> TargetCandidate? {
+    mutating func update(candidates: [TargetCandidate], gaze: CGPoint, time: Double,
+                         immediate: Bool = false) -> TargetCandidate? {
         if let current, current.frame.insetBy(dx: -stickiness, dy: -stickiness).contains(gaze) {
             // Le regard est toujours sur la cible (élargie) : on la garde, cadre rafraîchi si retrouvée.
             self.current = candidates.first { $0.id == current.id } ?? current
@@ -79,6 +82,11 @@ struct TargetSelector: Sendable, Equatable {
             return self.current
         }
         let best = TargetGeometry.nearest(candidates, to: gaze, radius: radius)
+        if immediate, let best {
+            current = best
+            pending = nil
+            return current
+        }
         if best?.id == current?.id {
             current = best          // même cible : on garde, cadre rafraîchi
             pending = nil

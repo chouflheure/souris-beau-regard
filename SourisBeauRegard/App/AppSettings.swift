@@ -8,6 +8,15 @@ import Observation
 final class AppSettings {
     private let defaults: UserDefaults
 
+    /// Caméra choisie (`nil` : automatique, la caméra intégrée).
+    var cameraID: String? {
+        didSet {
+            defaults.set(cameraID, forKey: Key.cameraID)
+            onCameraChange?()
+        }
+    }
+    @ObservationIgnored var onCameraChange: (@MainActor () -> Void)?
+
     /// Prévient l'état central quand l'affichage ou le suivi du regard change.
     @ObservationIgnored var onGazeDisplayChange: (@MainActor () -> Void)?
 
@@ -18,6 +27,7 @@ final class AppSettings {
         static let minEyeOpenness = "quality.minEyeOpenness"
         static let minFPS = "quality.minFPS"
         static let blinkRelativeThreshold = "gaze.blinkRelativeThreshold"
+        static let cameraID = "camera.id"
         static let pupilLocator = "gaze.pupilLocator"
         static let irisFraction = "gaze.irisFraction"
         static let ridgeLambda = "gaze.ridgeLambda"
@@ -267,6 +277,7 @@ final class AppSettings {
         minEyeOpenness = defaults.double(forKey: Key.minEyeOpenness)
         minFPS = defaults.double(forKey: Key.minFPS)
         blinkRelativeThreshold = defaults.double(forKey: Key.blinkRelativeThreshold)
+        cameraID = defaults.string(forKey: Key.cameraID)
         pupilLocator = PupilLocatorKind(rawValue: defaults.string(forKey: Key.pupilLocator) ?? "") ?? .image
         irisFraction = defaults.double(forKey: Key.irisFraction)
         ridgeLambda = defaults.double(forKey: Key.ridgeLambda)

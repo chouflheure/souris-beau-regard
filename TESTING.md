@@ -277,3 +277,22 @@ et la stabilisation mettait ensuite 2 s à « oublier » ces mesures (remontée 
 - [ ] Regarder le bas de l'écran : le point y va et y reste (pas de « regard perdu »).
 - [ ] Si des clignements font encore bouger le point : *Réglages ▸ Clignement : ouverture relative* plus haut (70 %) ;
       si le regard se perd en bas de l'écran : plus bas (50 %).
+
+### Iris clair, décalage énorme, caméra, réactivité
+
+- **Croix au bord du contour** : le contour de Vision est souvent trop petit et trop bas (il coupe le haut de l'iris).
+  La recherche se fait maintenant dans le contour agrandi (pointillé cyan dans la vue agrandie des yeux).
+- **Décalage −443, 754 pt** : la calibration datait d'avant le changement de recherche de la pupille ; l'apprentissage
+  par les clics compensait avec un décalage énorme. Une calibration faite avec une autre version des mesures n'est
+  plus chargée (**recalibrer**), un clic à plus de 500 pt du regard estimé n'est plus appris, et l'app signale
+  « Recalibrez » quand le décalage devient anormal.
+- **Caméra** : Réglages ▸ Caméra permet de choisir une caméra externe ou un **iPhone** (Caméra de continuité).
+  Cadre centré est désactivé par l'app ; les autres effets vidéo (Portrait, Studio Light, Réactions) sont signalés
+  dans le débogage.
+- **Réactivité** : quand la stabilisation confirme un vrai changement de regard, la recherche de cible part tout de suite
+  et la nouvelle cible est prise sans attendre le délai de 150 ms.
+
+- [ ] Recalibrer ; la croix rose est sur la pupille dans la vue agrandie ; « Décalage » reste petit (< 150 pt).
+- [ ] Débogage : aucun avertissement « Effets vidéo actifs » (sinon, les couper dans le Centre de contrôle).
+- [ ] Le surlignage passe plus vite d'un élément à un autre éloigné.
+- [ ] (Si un iPhone est disponible) le choisir comme caméra, recalibrer, comparer l'erreur et le bruit.

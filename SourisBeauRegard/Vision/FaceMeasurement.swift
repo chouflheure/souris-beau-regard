@@ -41,6 +41,10 @@ enum PupilLocatorKind: String, Codable, CaseIterable, Identifiable, Sendable {
 
     var id: String { rawValue }
 
+    /// Version de l'algorithme de `ImagePupilLocator` : une calibration faite avec une autre
+    /// version mesurait autre chose et n'est plus valable.
+    static let imageAlgorithmVersion = 3
+
     var label: String {
         switch self {
         case .vision: "Vision (repères)"

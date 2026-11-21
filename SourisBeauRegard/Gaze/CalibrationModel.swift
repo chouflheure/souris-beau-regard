@@ -60,6 +60,23 @@ struct CalibrationModel: Codable, Sendable, Equatable {
     var implicitEventCount: Int?
     /// Écarts mesurés aux derniers événements, par position : correction locale du décalage.
     var biasPoints: [BiasPoint]?
+    /// Version de l'algorithme de pupille « image » utilisé à la calibration.
+    var pupilAlgorithm: Int?
+    /// Caméra utilisée à la calibration (identifiant AVFoundation).
+    var cameraID: String?
+
+    /// Décalage au-delà duquel ce n'est plus un décalage mais une calibration à refaire (points).
+    static let maxAbsoluteOffset: Double = 500
+
+    /// La calibration a été faite avec les mesures actuelles.
+    var isCompatibleWithCurrentMeasures: Bool {
+        pupilLocator == .vision || pupilAlgorithm == PupilLocatorKind.imageAlgorithmVersion
+    }
+
+    /// Le décalage appris est anormalement grand : il vaut mieux recalibrer.
+    var needsRecalibration: Bool {
+        !isCompatibleWithCurrentMeasures || Double(hypot(offset.x, offset.y)) > Self.maxAbsoluteOffset * 0.7
+    }
 
     /// Écart (cible − prédiction) mesuré à un endroit de l'écran.
     struct BiasPoint: Codable, Sendable, Equatable {
@@ -114,6 +131,7 @@ struct CalibrationModel: Codable, Sendable, Equatable {
                                                                          lambda: choice.lambda)
         if kind == nil { model.autoKind = choice.kind }
         if lambda == nil { model.autoLambda = choice.lambda }
+        model.pupilAlgorithm = PupilLocatorKind.imageAlgorithmVersion
         return model
     }
 
@@ -239,7 +257,12 @@ struct CalibrationModel: Codable, Sendable, Equatable {
                         eventWindow: Int = 5, maxSamples: Int = 400) -> LearnOutcome {
         let group = features.map { CalibrationSample(features: $0, target: target) }
         guard let r = residual(group) else { return .rejected }
-        if let maxError, hypot(r.x - offset.x, r.y - offset.y) > maxError { return .rejected }
+        if let maxError {
+            // Trop loin du regard estimé (décalage actuel compris), ou écart absolu énorme :
+            // on ne regardait pas ce qu'on cliquait, ou la calibration est à refaire.
+            if hypot(r.x - offset.x, r.y - offset.y) > maxError { return .rejected }
+            if Double(hypot(r.x, r.y)) > Self.maxAbsoluteOffset { return .rejected }
+        }
         var events = resetHistory ? [] : (recentEvents ?? [])
         events.append(group)
         if events.count > Self.maxStoredEvents { events.removeFirst(events.count - Self.maxStoredEvents) }
@@ -356,7 +379,8 @@ struct CalibrationStore: Sendable {
     func load() -> CalibrationModel? {
         guard let data = try? Data(contentsOf: url),
               let model = try? JSONDecoder().decode(CalibrationModel.self, from: data),
-              model.version == CalibrationModel.currentVersion
+              model.version == CalibrationModel.currentVersion,
+              model.isCompatibleWithCurrentMeasures
         else { return nil }
         return model
     }
