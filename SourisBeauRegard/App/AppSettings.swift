@@ -25,6 +25,10 @@ final class AppSettings {
         static let calibrationGridSize = "calibration.gridSize"
         static let calibrationExtraPoses = "calibration.extraPoses"
         static let targetingEnabled = "targeting.enabled"
+        static let targetStickiness = "targeting.stickiness"
+        static let learnFromClicks = "learning.fromClicks"
+        static let learningMaxError = "learning.maxError"
+        static let learningEventWindow = "learning.eventWindow"
         static let snapRadius = "targeting.snapRadius"
         static let targetHysteresis = "targeting.hysteresis"
         static let targetingRate = "targeting.rate"
@@ -91,6 +95,25 @@ final class AppSettings {
             onGazeDisplayChange?()
         }
     }
+    /// Marge autour de la cible dans laquelle le regard peut errer sans la perdre (points).
+    var targetStickiness: Double {
+        didSet { defaults.set(targetStickiness, forKey: Key.targetStickiness) }
+    }
+    /// Apprendre en continu des vrais clics de souris.
+    var learnFromClicks: Bool {
+        didSet { defaults.set(learnFromClicks, forKey: Key.learnFromClicks) }
+    }
+    /// Au-delà de cet écart (points) entre le regard estimé et le clic, le clic est ignoré.
+    var learningMaxError: Double {
+        didSet { defaults.set(learningMaxError, forKey: Key.learningMaxError) }
+    }
+    /// Nombre de derniers clics qui fixent le décalage.
+    var learningEventWindow: Int {
+        didSet { defaults.set(learningEventWindow, forKey: Key.learningEventWindow) }
+    }
+    /// Fenêtre de mesures avant le clic (s) : le regard arrive sur la cible avant le clic.
+    let learningLookBackStart = 0.05
+    let learningLookBackEnd = 0.4
     /// Rayon d'accroche autour du regard (points écran).
     var snapRadius: Double {
         didSet { defaults.set(snapRadius, forKey: Key.snapRadius) }
@@ -202,6 +225,10 @@ final class AppSettings {
             Key.calibrationGridSize: 3,
             Key.calibrationExtraPoses: 2,
             Key.targetingEnabled: true,
+            Key.targetStickiness: 40.0,
+            Key.learnFromClicks: true,
+            Key.learningMaxError: 300.0,
+            Key.learningEventWindow: 5,
             Key.snapRadius: 120.0,
             Key.targetHysteresis: 0.15,
             Key.targetingRate: 15.0,
@@ -229,6 +256,10 @@ final class AppSettings {
         trainOnValidation = defaults.bool(forKey: Key.trainOnValidation)
         calibrationExtraPoses = min(max(defaults.integer(forKey: Key.calibrationExtraPoses), 0), 4)
         targetingEnabled = defaults.bool(forKey: Key.targetingEnabled)
+        targetStickiness = defaults.double(forKey: Key.targetStickiness)
+        learnFromClicks = defaults.bool(forKey: Key.learnFromClicks)
+        learningMaxError = defaults.double(forKey: Key.learningMaxError)
+        learningEventWindow = min(max(defaults.integer(forKey: Key.learningEventWindow), 1), 30)
         snapRadius = defaults.double(forKey: Key.snapRadius)
         targetHysteresis = defaults.double(forKey: Key.targetHysteresis)
         targetingRate = min(max(defaults.double(forKey: Key.targetingRate), 2), 30)

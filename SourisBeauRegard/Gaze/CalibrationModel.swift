@@ -51,10 +51,19 @@ struct CalibrationModel: Codable, Sendable, Equatable {
     /// Décalage de recentrage ajouté aux prédictions (points écran).
     var offset: CGPoint = .zero
 
+    // Apprentissage continu (optionnels : un fichier plus ancien se lit sans eux).
+    /// Mesures apprises des vrais clics de souris (on regarde ce qu'on clique).
+    var implicitSamples: [CalibrationSample]?
+    /// Derniers événements (clic ou recentrage), qui fixent le décalage.
+    var recentEvents: [[CalibrationSample]]?
+    /// Clics retenus depuis la calibration.
+    var implicitEventCount: Int?
+
     var lambda: Double { regression.lambda }
 
     var trainingSamples: [CalibrationSample] {
-        trainedOnValidation ? calibrationSamples + validationSamples.flatMap { $0 } : calibrationSamples
+        (trainedOnValidation ? calibrationSamples + validationSamples.flatMap { $0 } : calibrationSamples)
+            + (implicitSamples ?? [])
     }
 
     enum FitError: LocalizedError, Equatable {
@@ -143,6 +152,65 @@ struct CalibrationModel: Codable, Sendable, Equatable {
         } catch let error as RidgeRegression.FitError {
             throw FitError.regression(error)
         }
+    }
+
+    // MARK: - Apprentissage continu
+
+    enum LearnOutcome: Equatable {
+        case accepted
+        /// Le clic est trop loin du regard estimé : on ne regardait sans doute pas ce qu'on cliquait.
+        case rejected
+    }
+
+    /// Écart médian (cible − prédiction sans décalage) sur un groupe de mesures.
+    func residual(_ group: [CalibrationSample]) -> CGPoint? {
+        guard !group.isEmpty else { return nil }
+        let r = group.map { s -> CGPoint in
+            let p = predictUncorrected(s.features)
+            return CGPoint(x: s.target.x - p.x, y: s.target.y - p.y)
+        }
+        return CGPoint(x: Stats.median(r.map { Double($0.x) }), y: Stats.median(r.map { Double($0.y) }))
+    }
+
+    /// Décalage = médiane des écarts des derniers événements.
+    mutating func updateOffsetFromEvents() {
+        let residuals = (recentEvents ?? []).compactMap { residual($0) }
+        guard !residuals.isEmpty else { return }
+        offset = CGPoint(x: Stats.median(residuals.map { Double($0.x) }),
+                         y: Stats.median(residuals.map { Double($0.y) }))
+    }
+
+    /// Apprend d'un clic (ou d'un recentrage) : `features` mesurées juste avant, `target` le point visé.
+    /// - Parameters:
+    ///   - resetHistory: oublie les événements précédents (recentrage après un déplacement).
+    ///   - addToTraining: ajoute les mesures à l'apprentissage du modèle (clics).
+    ///   - maxError: au-delà (points, décalage actuel compris), l'événement est rejeté ; `nil` : jamais.
+    @discardableResult
+    mutating func learn(from features: [GazeFeatures], target: CGPoint, maxError: Double?,
+                        resetHistory: Bool = false, addToTraining: Bool = true,
+                        eventWindow: Int = 5, maxSamples: Int = 400) -> LearnOutcome {
+        let group = features.map { CalibrationSample(features: $0, target: target) }
+        guard let r = residual(group) else { return .rejected }
+        if let maxError, hypot(r.x - offset.x, r.y - offset.y) > maxError { return .rejected }
+        var events = resetHistory ? [] : (recentEvents ?? [])
+        events.append(group)
+        if events.count > eventWindow { events.removeFirst(events.count - eventWindow) }
+        recentEvents = events
+        if addToTraining {
+            var samples = (implicitSamples ?? []) + group
+            if samples.count > maxSamples { samples.removeFirst(samples.count - maxSamples) }
+            implicitSamples = samples
+            implicitEventCount = (implicitEventCount ?? 0) + 1
+        }
+        updateOffsetFromEvents()
+        return .accepted
+    }
+
+    /// Réapprend le modèle avec les mesures des clics (même modèle et même λ, sans validation croisée,
+    /// trop coûteuse avec des centaines de points), puis recalcule le décalage.
+    mutating func refitWithImplicitSamples() throws {
+        regression = try Self.fitRegression(trainingSamples, kind: kind, lambda: lambda)
+        updateOffsetFromEvents()
     }
 
     /// Point regardé, sans le décalage de recentrage.

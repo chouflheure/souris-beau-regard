@@ -41,7 +41,7 @@ final class TargetingTests: XCTestCase {
     // MARK: Hystérésis
 
     func testSelectorWaitsBeforeAcquiringAndSwitching() {
-        var s = TargetSelector(hysteresis: 0.15, radius: 120)
+        var s = TargetSelector(hysteresis: 0.15, radius: 120, stickiness: 0)
         let a = target("a", x: 100, y: 100)
         let b = target("b", x: 200, y: 100)
 
@@ -59,7 +59,7 @@ final class TargetingTests: XCTestCase {
     }
 
     func testSelectorDoesNotFlickerBetweenNeighbours() {
-        var s = TargetSelector(hysteresis: 0.15, radius: 120)
+        var s = TargetSelector(hysteresis: 0.15, radius: 120, stickiness: 0)
         let a = target("a", x: 100, y: 100)
         let b = target("b", x: 140, y: 100)
         for i in 0..<10 { s.update(candidates: [a, b], gaze: CGPoint(x: 105, y: 100), time: Double(i) * 0.033) }
@@ -92,6 +92,24 @@ final class TargetingTests: XCTestCase {
         s.update(candidates: [a], gaze: CGPoint(x: 100, y: 100), time: 0.01)
         a.frame = a.frame.offsetBy(dx: 5, dy: 0)
         XCTAssertEqual(s.update(candidates: [a], gaze: CGPoint(x: 100, y: 100), time: 0.02)?.frame, a.frame)
+    }
+
+    func testStickinessKeepsTargetWhileGazeStaysNearIt() {
+        var s = TargetSelector(hysteresis: 0.15, radius: 120, stickiness: 40)
+        let a = target("a", x: 100, y: 100)            // 80…120 × 90…110
+        let b = target("b", x: 170, y: 100)
+        s.update(candidates: [a, b], gaze: CGPoint(x: 100, y: 100), time: 0)
+        s.update(candidates: [a, b], gaze: CGPoint(x: 100, y: 100), time: 0.2)
+        XCTAssertEqual(s.current?.id, "a")
+        // Le regard dérive à 150 (plus près de b) mais reste à moins de 40 pt du bord de a : a reste, longtemps.
+        for i in 0..<20 {
+            XCTAssertEqual(s.update(candidates: [a, b], gaze: CGPoint(x: 150, y: 100), time: 0.3 + Double(i) * 0.05)?.id, "a")
+        }
+        // La recherche rate a sur une image : on la garde quand même.
+        XCTAssertEqual(s.update(candidates: [b], gaze: CGPoint(x: 110, y: 100), time: 1.5)?.id, "a")
+        // Le regard sort de la zone élargie et reste sur b 150 ms : changement.
+        s.update(candidates: [a, b], gaze: CGPoint(x: 175, y: 100), time: 2.0)
+        XCTAssertEqual(s.update(candidates: [a, b], gaze: CGPoint(x: 175, y: 100), time: 2.2)?.id, "b")
     }
 
     // MARK: Historique

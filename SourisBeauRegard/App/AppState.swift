@@ -48,6 +48,11 @@ final class AppState {
     private(set) var recenterShortcutAvailable = false
     private(set) var calibrationSaveError: String?
 
+    // Apprentissage par les clics.
+    private(set) var clicksAccepted = 0
+    private(set) var clicksRejected = 0
+    private(set) var lastClickError: Double?
+
     // Ciblage.
     private(set) var currentTarget: TargetCandidate?
     private(set) var targetCandidateCount = 0
@@ -62,7 +67,7 @@ final class AppState {
     @ObservationIgnored private var watchdogTask: Task<Void, Never>?
     @ObservationIgnored private var screenObserver: (any NSObjectProtocol)?
     @ObservationIgnored private var recenterStart: Double = 0
-    @ObservationIgnored private var recenterSamples: [CGPoint] = []
+    @ObservationIgnored private var recenterSamples: [GazeFeatures] = []
     @ObservationIgnored private var saveTask: Task<Void, Never>?
     @ObservationIgnored private let targetFinder = AXTargetFinder()
     @ObservationIgnored private var targetSelector = TargetSelector()
@@ -70,6 +75,9 @@ final class AppState {
     @ObservationIgnored private var lastTargetQuery: Double = 0
     @ObservationIgnored private var lastCameraStart: Double = 0
     @ObservationIgnored private var recentStalls: [Double] = []
+    /// Mesures valides de la dernière seconde, pour apprendre des clics.
+    @ObservationIgnored private var recentFeatures: [(time: Double, features: GazeFeatures)] = []
+    @ObservationIgnored private var clickMonitor: Any?
     /// Empêche App Nap de ralentir l'app pendant le suivi (app de barre des menus sans fenêtre visible).
     @ObservationIgnored private var activity: (any NSObjectProtocol)?
 
@@ -139,6 +147,7 @@ final class AppState {
         permissions.refresh()
         calibration = store.load()
         startWatchdogs()
+        startClickLearning()
         recenterShortcutAvailable = GlobalHotKeys.shared.register(GlobalHotKeys.recenter) { [weak self] in
             self?.recenter()
         }
@@ -238,9 +247,11 @@ final class AppState {
             recenterMessage = "Recentrage impossible : regard non mesuré (visage bien visible ?)."
             return
         }
-        let measured = CGPoint(x: Stats.median(recenterSamples.map { Double($0.x) }),
-                               y: Stats.median(recenterSamples.map { Double($0.y) }))
-        model.offset = CGPoint(x: model.screenFrame.midX - measured.x, y: model.screenFrame.midY - measured.y)
+        // Le recentrage remplace l'historique des écarts (la tête a sans doute bougé),
+        // sans ajouter ces mesures à l'apprentissage.
+        model.learn(from: recenterSamples, target: CGPoint(x: model.screenFrame.midX, y: model.screenFrame.midY),
+                    maxError: nil, resetHistory: true, addToTraining: false,
+                    eventWindow: settings.learningEventWindow)
         calibration = model
         engine.reset()
         recenterMessage = String(format: "Décalage corrigé : %.0f, %.0f pt", model.offset.x, model.offset.y)
@@ -250,11 +261,53 @@ final class AppState {
     func clearRecenterOffset() {
         guard var model = calibration else { return }
         model.offset = .zero
+        model.recentEvents = []
         calibration = model
         engine.reset()
         recenterMessage = nil
         saveCalibration(immediately: true)
     }
+
+    // MARK: - Apprentissage par les clics
+
+    /// Écoute (sans les intercepter) les clics de la vraie souris : on regarde presque toujours ce
+    /// qu'on clique, chaque clic est donc un point de calibration gratuit.
+    private func startClickLearning() {
+        guard clickMonitor == nil else { return }
+        // Appelé sur le fil principal ; n'intercepte rien (écoute seule).
+        clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown]) { [weak self] _ in
+            MainActor.assumeIsolated { self?.learnFromClick(atAppKit: NSEvent.mouseLocation) }
+        }
+    }
+
+    private func learnFromClick(atAppKit location: CGPoint) {
+        guard settings.learnFromClicks, isTrackingActive, !isRecentering, var model = calibration else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        let target = CoordinateSpaces.appKitToQuartz(location, primaryScreenHeight: ScreenGeometry.primaryScreenHeight)
+        // Clic sur un autre écran que celui calibré : rien à apprendre.
+        guard model.screenFrame.contains(target) else { return }
+        let window = (now - settings.learningLookBackEnd)...(now - settings.learningLookBackStart)
+        let features = recentFeatures.filter { window.contains($0.time) }.map { $0.features }
+        guard features.count >= 3 else { return }
+        let before = model.predict(features[features.count / 2])
+        lastClickError = Double(hypot(before.x - target.x, before.y - target.y))
+        let outcome = model.learn(from: features, target: target, maxError: settings.learningMaxError,
+                                  eventWindow: settings.learningEventWindow)
+        guard outcome == .accepted else {
+            clicksRejected += 1
+            return
+        }
+        clicksAccepted += 1
+        if let count = model.implicitEventCount, count.isMultiple(of: Self.refitEveryClicks) {
+            try? model.refitWithImplicitSamples()
+        }
+        calibration = model
+        engine.reset()
+        saveCalibration(immediately: false)
+    }
+
+    /// Nombre de clics retenus entre deux réapprentissages du modèle.
+    private static let refitEveryClicks = 20
 
     // MARK: - Calibration
 
@@ -440,8 +493,16 @@ final class AppState {
 
         if isRecentering, let valid {
             let elapsed = now - recenterStart
-            let p = model.predictUncorrected(valid)
-            if Self.recenterWindow.contains(elapsed), GazeEngine.isFinite(p) { recenterSamples.append(p) }
+            if Self.recenterWindow.contains(elapsed), GazeEngine.isFinite(model.predictUncorrected(valid)) {
+                recenterSamples.append(valid)
+            }
+        }
+
+        if let valid {
+            recentFeatures.append((now, valid))
+            if let first = recentFeatures.first, now - first.time > 1.0 {
+                recentFeatures.removeAll { now - $0.time > 1.0 }
+            }
         }
 
         var estimate: GazeEstimate?
@@ -493,6 +554,7 @@ final class AppState {
         }
         targetSelector.hysteresis = settings.targetHysteresis
         targetSelector.radius = CGFloat(settings.snapRadius)
+        targetSelector.stickiness = CGFloat(settings.targetStickiness)
         guard now - lastTargetQuery >= 1 / settings.targetingRate else { return }
         let screen = calibration.screenFrame
         let query = TargetQuery(point: gaze.point, radius: CGFloat(settings.snapRadius),

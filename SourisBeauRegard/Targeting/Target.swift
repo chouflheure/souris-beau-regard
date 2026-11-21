@@ -55,19 +55,29 @@ enum TargetGeometry {
 struct TargetSelector: Sendable, Equatable {
     var hysteresis: Double = 0.15
     var radius: CGFloat = 120
+    /// Marge d'accroche (points) : tant que le regard reste dans la cible élargie de cette marge,
+    /// on la garde, même si un voisin est plus proche ou si la recherche l'a manquée cette fois-ci.
+    var stickiness: CGFloat = 40
 
     private(set) var current: TargetCandidate?
     /// Situation en attente de confirmation : `.some(nil)` signifie « plus de cible ».
     private var pending: TargetCandidate??
     private var pendingSince: Double = 0
 
-    init(hysteresis: Double = 0.15, radius: CGFloat = 120) {
+    init(hysteresis: Double = 0.15, radius: CGFloat = 120, stickiness: CGFloat = 40) {
         self.hysteresis = hysteresis
         self.radius = radius
+        self.stickiness = stickiness
     }
 
     @discardableResult
     mutating func update(candidates: [TargetCandidate], gaze: CGPoint, time: Double) -> TargetCandidate? {
+        if let current, current.frame.insetBy(dx: -stickiness, dy: -stickiness).contains(gaze) {
+            // Le regard est toujours sur la cible (élargie) : on la garde, cadre rafraîchi si retrouvée.
+            self.current = candidates.first { $0.id == current.id } ?? current
+            pending = nil
+            return self.current
+        }
         let best = TargetGeometry.nearest(candidates, to: gaze, radius: radius)
         if best?.id == current?.id {
             current = best          // même cible : on garde, cadre rafraîchi

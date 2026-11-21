@@ -266,6 +266,91 @@ final class RidgeRegressionTests: XCTestCase {
         XCTAssertGreaterThan(try error(.binocular), 50)
     }
 
+    // MARK: - Apprentissage continu
+
+    private func trainedModel() throws -> CalibrationModel {
+        let screen = CGRect(x: 0, y: 0, width: 1440, height: 900)
+        let grid = CalibrationPlan.calibrationGrid.map { CoordinateSpaces.normalizedToQuartz($0, screenFrameQuartz: screen) }
+        return try CalibrationModel.fit(samples: simulatedSamples(points: grid, perPoint: 15),
+                                        screenFrame: screen, pupilLocator: .image, kind: .binocular, lambda: 1)
+    }
+
+    func testClickLearningCorrectsSystematicOffset() throws {
+        var model = try trainedModel()
+        // On regarde (500, 300) mais le modèle s'est décalé : le clic est 80 pt plus à droite que la mesure.
+        for _ in 0..<3 {
+            let looked = simulatedSamples(points: [CGPoint(x: 500, y: 300)], perPoint: 6).map(\.features)
+            XCTAssertEqual(model.learn(from: looked, target: CGPoint(x: 580, y: 300), maxError: 300), .accepted)
+        }
+        XCTAssertEqual(model.offset.x, 80, accuracy: 10)
+        XCTAssertEqual(model.offset.y, 0, accuracy: 10)
+        XCTAssertEqual(model.implicitEventCount, 3)
+        XCTAssertEqual(model.implicitSamples?.count, 18)
+        XCTAssertEqual(model.recentEvents?.count, 3)
+    }
+
+    func testClickFarFromGazeIsRejected() throws {
+        var model = try trainedModel()
+        let looked = simulatedSamples(points: [CGPoint(x: 300, y: 300)], perPoint: 6).map(\.features)
+        XCTAssertEqual(model.learn(from: looked, target: CGPoint(x: 1200, y: 800), maxError: 300), .rejected)
+        XCTAssertEqual(model.offset, .zero)
+        XCTAssertNil(model.implicitSamples)
+        XCTAssertEqual(model.learn(from: [], target: .zero, maxError: nil), .rejected)
+    }
+
+    func testRecenterResetsHistoryWithoutTraining() throws {
+        var model = try trainedModel()
+        for _ in 0..<3 {
+            let looked = simulatedSamples(points: [CGPoint(x: 500, y: 300)], perPoint: 6).map(\.features)
+            model.learn(from: looked, target: CGPoint(x: 580, y: 300), maxError: 300)
+        }
+        let center = simulatedSamples(points: [CGPoint(x: 720, y: 450)], perPoint: 10).map(\.features)
+        model.learn(from: center, target: CGPoint(x: 720, y: 410), maxError: nil, resetHistory: true, addToTraining: false)
+        XCTAssertEqual(model.recentEvents?.count, 1)
+        XCTAssertEqual(model.offset.x, 0, accuracy: 10)
+        XCTAssertEqual(model.offset.y, -40, accuracy: 10)
+        XCTAssertEqual(model.implicitEventCount, 3, "le recentrage n'est pas compté comme un clic appris")
+    }
+
+    func testEventWindowKeepsOnlyLatestEvents() throws {
+        var model = try trainedModel()
+        for shift in [200.0, 200, 0, 0, 0] {
+            let looked = simulatedSamples(points: [CGPoint(x: 600, y: 400)], perPoint: 4).map(\.features)
+            model.learn(from: looked, target: CGPoint(x: 600 + shift, y: 400), maxError: 400, eventWindow: 3)
+        }
+        XCTAssertEqual(model.recentEvents?.count, 3)
+        XCTAssertEqual(model.offset.x, 0, accuracy: 10)
+    }
+
+    func testRefitWithImplicitSamplesAndPersistence() throws {
+        var model = try trainedModel()
+        for x in stride(from: 200.0, through: 1200, by: 100) {
+            let looked = simulatedSamples(points: [CGPoint(x: x, y: 450)], perPoint: 5).map(\.features)
+            model.learn(from: looked, target: CGPoint(x: x + 30, y: 450), maxError: 300)
+        }
+        let before = model.trainingSamples.count
+        XCTAssertEqual(before, 9 * 15 + 11 * 5)
+        try model.refitWithImplicitSamples()
+        // Le modèle absorbe une partie du décalage ; le reste est porté par le décalage recalculé.
+        XCTAssertGreaterThanOrEqual(model.offset.x, -5)
+        XCTAssertLessThanOrEqual(model.offset.x, 35)
+
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = CalibrationStore(url: dir.appendingPathComponent("calibration.json"))
+        try store.save(model)
+        XCTAssertEqual(store.load(), model)
+    }
+
+    func testCrossValidationUsesFoldsWithManyPoints() throws {
+        let screen = CGRect(x: 0, y: 0, width: 1440, height: 900)
+        let grid = CalibrationPlan.grid(size: 5).map { CoordinateSpaces.normalizedToQuartz($0, screenFrameQuartz: screen) }
+        let samples = simulatedSamples(points: grid, perPoint: 5)
+        XCTAssertEqual(ModelSelection.groups(samples).count, 25)
+        let error = try XCTUnwrap(ModelSelection.crossValidationError(samples, kind: .binocular, lambda: 1))
+        XCTAssertLessThan(error, 40)
+    }
+
     func testGroupsKeepOrder() {
         let a = CalibrationSample(features: features(Array(repeating: 0, count: 11)), target: CGPoint(x: 1, y: 1))
         let b = CalibrationSample(features: features(Array(repeating: 0, count: 11)), target: CGPoint(x: 2, y: 2))

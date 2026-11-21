@@ -174,3 +174,21 @@ Prérequis : Accessibilité autorisée (écran d'accueil), calibration faite, *R
 Réglages utiles : rayon d'accroche (120 pt), délai avant changement (150 ms), taille max. d'une cible.
 
 À rapporter : apps où ça marche ou pas, durée de recherche typique, et tout clignotement.
+
+### Étape 3 bis — Cible plus « collante » et apprentissage par les clics
+
+- **Marge d'accroche** (40 pt) : la cible reste surlignée tant que le regard reste dans la cible élargie
+  de cette marge, même si un voisin devient plus proche ou si une recherche la manque.
+  Réglages ▸ Ciblage ▸ *Marge d'accroche* : l'augmenter si la cible saute encore.
+- **Apprentissage continu** : chaque vrai clic de souris (écouté, jamais intercepté) sert de point de
+  calibration. Le regard estimé juste avant le clic est comparé à l'endroit cliqué ; les 5 derniers clics
+  fixent le décalage, et le modèle est réappris tous les 20 clics. Un clic à plus de 300 pt du regard estimé
+  est ignoré (on ne regardait sans doute pas ce qu'on cliquait).
+
+- [ ] Utiliser le Mac normalement à la souris quelques minutes, en regardant ce qu'on clique :
+      *Débogage ▸ Clics appris / ignorés* augmente, *Écart au dernier clic* diminue.
+- [ ] Le décalage visible du cercle se réduit au fil des clics.
+- [ ] Se décaler sur sa chaise puis ⌃⌥R : le décalage est corrigé d'un coup (historique des clics remis à zéro).
+- [ ] La cible ne saute plus quand le regard tremble à côté d'elle.
+
+À rapporter : écart au dernier clic au début et après quelques minutes, nombre de clics ignorés.

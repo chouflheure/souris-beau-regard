@@ -17,11 +17,24 @@ struct SettingsView: View {
                 }
                 ModelControls()
             }
+            Section("Apprentissage continu") {
+                Toggle("Apprendre de mes clics de souris", isOn: $settings.learnFromClicks)
+                LabeledContent("Écart max. retenu (pt)") {
+                    Slider(value: $settings.learningMaxError, in: 100...800)
+                    Text(String(format: "%.0f", settings.learningMaxError)).monospacedDigit()
+                }
+                Stepper("Décalage : \(settings.learningEventWindow) dernier(s) clic(s)",
+                        value: $settings.learningEventWindow, in: 1...30)
+            }
             Section("Ciblage (accessibilité)") {
                 Toggle("Surligner l'élément regardé", isOn: $settings.targetingEnabled)
                 LabeledContent("Rayon d'accroche (pt)") {
                     Slider(value: $settings.snapRadius, in: 30...300)
                     Text(String(format: "%.0f", settings.snapRadius)).monospacedDigit()
+                }
+                LabeledContent("Marge d'accroche (pt)") {
+                    Slider(value: $settings.targetStickiness, in: 0...150)
+                    Text(String(format: "%.0f", settings.targetStickiness)).monospacedDigit()
                 }
                 LabeledContent("Délai avant changement (ms)") {
                     Slider(value: $settings.targetHysteresis, in: 0...0.5)

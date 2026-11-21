@@ -222,6 +222,9 @@ private struct GazeSection: View {
                 if let message = appState.recenterMessage {
                     Text(message).font(.callout).foregroundStyle(.secondary)
                 }
+                ValueRow("Clics appris / ignorés", "\(appState.clicksAccepted) / \(appState.clicksRejected)"
+                         + (appState.calibration?.implicitSamples.map { " · \($0.count) mesures" } ?? ""))
+                ValueRow("Écart au dernier clic", appState.lastClickError.map { String(format: "%.0f pt", $0) } ?? "—")
                 ValueRow("Bruit du regard (1 s)", appState.gazeSpread.map { String(format: "%.0f pt", $0) } ?? "—")
                 ValueRow("Relances caméra", "\(appState.cameraRestarts)")
                 if let gaze = appState.gaze {

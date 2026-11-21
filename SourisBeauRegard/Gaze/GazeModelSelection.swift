@@ -84,18 +84,27 @@ enum ModelSelection {
                        y: Stats.median(predictions.map { Double($0.y) }))
     }
 
+    /// Nombre maximal de plis : au-delà de ce nombre de points, on les répartit en plis.
+    static let maxFolds = 12
+
     /// Erreur moyenne (points) en laissant chaque point de côté ; `nil` si impossible.
+    /// Avec beaucoup de points (grande grille, positions de tête, clics), les points sont répartis
+    /// en `maxFolds` plis pour garder un calcul rapide.
     static func crossValidationError(_ samples: [CalibrationSample], kind: GazeModelKind,
                                      lambda: Double) -> Double? {
         let groups = groups(samples)
         guard groups.count >= 3 else { return nil }
+        let foldCount = min(groups.count, maxFolds)
         var errors: [Double] = []
-        for (i, held) in groups.enumerated() {
-            let training = groups.enumerated().filter { $0.offset != i }.flatMap { $0.element }
-            guard let regression = try? kind.fit(training, lambda: lambda),
-                  let target = held.first?.target else { continue }
-            let estimate = medianPrediction(held, kind: kind, regression: regression)
-            errors.append(Double(hypot(estimate.x - target.x, estimate.y - target.y)))
+        for fold in 0..<foldCount {
+            let held = groups.indices.filter { $0 % foldCount == fold }
+            let training = groups.indices.filter { $0 % foldCount != fold }.flatMap { groups[$0] }
+            guard let regression = try? kind.fit(training, lambda: lambda) else { return nil }
+            for i in held {
+                guard let target = groups[i].first?.target else { continue }
+                let estimate = medianPrediction(groups[i], kind: kind, regression: regression)
+                errors.append(Double(hypot(estimate.x - target.x, estimate.y - target.y)))
+            }
         }
         guard errors.count == groups.count else { return nil }
         return errors.reduce(0, +) / Double(errors.count)
