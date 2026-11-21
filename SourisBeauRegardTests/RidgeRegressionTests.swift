@@ -318,8 +318,30 @@ final class RidgeRegressionTests: XCTestCase {
             let looked = simulatedSamples(points: [CGPoint(x: 600, y: 400)], perPoint: 4).map(\.features)
             model.learn(from: looked, target: CGPoint(x: 600 + shift, y: 400), maxError: 400, eventWindow: 3)
         }
-        XCTAssertEqual(model.recentEvents?.count, 3)
+        XCTAssertEqual(model.recentEvents?.count, 5)
         XCTAssertEqual(model.offset.x, 0, accuracy: 10)
+    }
+
+    func testLocalBiasDependsOnScreenRegion() throws {
+        var model = try trainedModel()
+        // À gauche le modèle vise trop à gauche (+100 à corriger), à droite trop à droite (−100).
+        for i in 0..<6 {
+            let left = simulatedSamples(points: [CGPoint(x: 250, y: 300 + Double(i) * 50)], perPoint: 5).map(\.features)
+            model.learn(from: left, target: CGPoint(x: 350, y: 300 + Double(i) * 50), maxError: 600)
+            let right = simulatedSamples(points: [CGPoint(x: 1200, y: 300 + Double(i) * 50)], perPoint: 5).map(\.features)
+            model.learn(from: right, target: CGPoint(x: 1100, y: 300 + Double(i) * 50), maxError: 600)
+        }
+        XCTAssertEqual(model.biasPoints?.count, 12)
+        XCTAssertEqual(model.correction(at: CGPoint(x: 250, y: 420)).x, 100, accuracy: 25)
+        XCTAssertEqual(model.correction(at: CGPoint(x: 1200, y: 420)).x, -100, accuracy: 25)
+        // Loin de tout clic : décalage global (médiane des derniers), entre les deux.
+        XCTAssertEqual(CalibrationModel.localBias(at: CGPoint(x: 5000, y: 5000), points: model.biasPoints ?? [],
+                                                  global: CGPoint(x: 7, y: 0)).x, 7, accuracy: 1e-6)
+    }
+
+    func testLocalBiasWithoutPointsIsGlobalOffset() {
+        XCTAssertEqual(CalibrationModel.localBias(at: .zero, points: [], global: CGPoint(x: 12, y: -3)),
+                       CGPoint(x: 12, y: -3))
     }
 
     func testRefitWithImplicitSamplesAndPersistence() throws {

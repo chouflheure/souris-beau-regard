@@ -228,3 +228,18 @@ un vrai changement de regard.
       Stabilité : seuil de saut*. S'il saute encore au repos : l'augmenter, ou passer la confirmation à 3 images.
 
 À rapporter : comportement en fixant un élément, valeur du bruit affiché, réglages modifiés.
+
+### Correctifs — plantage et décalage
+
+- **Plantage** `AXUIElementCopyElementAtPosition` / `NSMenu … non-main thread` : la recherche de cible
+  interrogeait l'accessibilité « système », qui faisait répondre notre propre app (icône de la barre des menus,
+  débogage) sur un fil secondaire. Elle interroge maintenant directement l'app dont la fenêtre est sous le point
+  (en traversant le surlignage ; l'app active pour la barre des menus).
+  - [ ] Regarder l'icône de l'app dans la barre des menus, la fenêtre de débogage, les réglages : pas de plantage,
+        pas de surlignage sur nos propres fenêtres.
+  - [ ] Les menus de la barre des menus de l'app active sont toujours surlignés.
+- **Décalage** : l'apprentissage par les clics (sans exercice) ignorait les clics à plus de 300 pt — justement quand
+  le décalage était grand. Seuil porté à 600 pt. Et la correction est maintenant **locale** : chaque clic corrige surtout
+  la zone de l'écran où il a eu lieu (30 derniers clics gardés), le décalage global servant ailleurs.
+  - [ ] Le menu affiche « Apprentissage : N clic(s) appris » ; N augmente en utilisant la souris normalement.
+  - [ ] Après une dizaine de clics répartis sur l'écran, le décalage diminue dans chaque zone, coins compris.

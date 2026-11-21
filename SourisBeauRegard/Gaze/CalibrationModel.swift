@@ -58,6 +58,22 @@ struct CalibrationModel: Codable, Sendable, Equatable {
     var recentEvents: [[CalibrationSample]]?
     /// Clics retenus depuis la calibration.
     var implicitEventCount: Int?
+    /// Écarts mesurés aux derniers événements, par position : correction locale du décalage.
+    var biasPoints: [BiasPoint]?
+
+    /// Écart (cible − prédiction) mesuré à un endroit de l'écran.
+    struct BiasPoint: Codable, Sendable, Equatable {
+        var position: CGPoint
+        var residual: CGPoint
+    }
+
+    /// Événements gardés pour la correction locale.
+    static let maxStoredEvents = 30
+    /// Rayon d'influence d'un événement (points) et poids du décalage global.
+    static let biasRadius: Double = 300
+    static let globalBiasWeight: Double = 0.2
+    /// Chaque événement plus ancien compte un peu moins.
+    static let biasAgeDecay: Double = 0.93
 
     var lambda: Double { regression.lambda }
 
@@ -172,12 +188,44 @@ struct CalibrationModel: Codable, Sendable, Equatable {
         return CGPoint(x: Stats.median(r.map { Double($0.x) }), y: Stats.median(r.map { Double($0.y) }))
     }
 
-    /// Décalage = médiane des écarts des derniers événements.
-    mutating func updateOffsetFromEvents() {
-        let residuals = (recentEvents ?? []).compactMap { residual($0) }
-        guard !residuals.isEmpty else { return }
-        offset = CGPoint(x: Stats.median(residuals.map { Double($0.x) }),
-                         y: Stats.median(residuals.map { Double($0.y) }))
+    /// Décalage global = médiane des écarts des `eventWindow` derniers événements ;
+    /// correction locale = écarts de tous les événements gardés, à leur position.
+    mutating func updateOffsetFromEvents(eventWindow: Int = 5) {
+        let events = recentEvents ?? []
+        let points: [BiasPoint] = events.compactMap { group in
+            guard let r = residual(group) else { return nil }
+            let predictions = group.map { predictUncorrected($0.features) }
+            let position = CGPoint(x: Stats.median(predictions.map { Double($0.x) }),
+                                   y: Stats.median(predictions.map { Double($0.y) }))
+            return BiasPoint(position: position, residual: r)
+        }
+        biasPoints = points
+        let latest = points.suffix(max(eventWindow, 1)).map(\.residual)
+        guard !latest.isEmpty else { return }
+        offset = CGPoint(x: Stats.median(latest.map { Double($0.x) }),
+                         y: Stats.median(latest.map { Double($0.y) }))
+    }
+
+    /// Correction à appliquer à une prédiction `p` : moyenne des écarts des événements proches
+    /// (pondérés par la distance et l'ancienneté), tirée vers le décalage global. Logique pure.
+    static func localBias(at p: CGPoint, points: [BiasPoint], global: CGPoint,
+                          radius: Double = biasRadius, globalWeight: Double = globalBiasWeight,
+                          ageDecay: Double = biasAgeDecay) -> CGPoint {
+        var sx = globalWeight * Double(global.x), sy = globalWeight * Double(global.y), sw = globalWeight
+        for (i, b) in points.enumerated() {
+            let age = Double(points.count - 1 - i)
+            let dx = Double(p.x - b.position.x), dy = Double(p.y - b.position.y)
+            let w = exp(-(dx * dx + dy * dy) / (2 * radius * radius)) * pow(ageDecay, age)
+            sx += w * Double(b.residual.x)
+            sy += w * Double(b.residual.y)
+            sw += w
+        }
+        return CGPoint(x: sx / sw, y: sy / sw)
+    }
+
+    /// Correction (décalage) à l'endroit `p` de l'écran.
+    func correction(at p: CGPoint) -> CGPoint {
+        Self.localBias(at: p, points: biasPoints ?? [], global: offset)
     }
 
     /// Apprend d'un clic (ou d'un recentrage) : `features` mesurées juste avant, `target` le point visé.
@@ -194,7 +242,7 @@ struct CalibrationModel: Codable, Sendable, Equatable {
         if let maxError, hypot(r.x - offset.x, r.y - offset.y) > maxError { return .rejected }
         var events = resetHistory ? [] : (recentEvents ?? [])
         events.append(group)
-        if events.count > eventWindow { events.removeFirst(events.count - eventWindow) }
+        if events.count > Self.maxStoredEvents { events.removeFirst(events.count - Self.maxStoredEvents) }
         recentEvents = events
         if addToTraining {
             var samples = (implicitSamples ?? []) + group
@@ -202,7 +250,7 @@ struct CalibrationModel: Codable, Sendable, Equatable {
             implicitSamples = samples
             implicitEventCount = (implicitEventCount ?? 0) + 1
         }
-        updateOffsetFromEvents()
+        updateOffsetFromEvents(eventWindow: eventWindow)
         return .accepted
     }
 
@@ -213,7 +261,8 @@ struct CalibrationModel: Codable, Sendable, Equatable {
         if samples.count > maxSamples { samples.removeFirst(samples.count - maxSamples) }
         implicitSamples = samples
         implicitEventCount = (implicitEventCount ?? 0) + nonEmpty.count
-        recentEvents = Array(nonEmpty.suffix(eventWindow))
+        recentEvents = Array(((recentEvents ?? []) + nonEmpty).suffix(Self.maxStoredEvents))
+        updateOffsetFromEvents(eventWindow: eventWindow)
     }
 
     /// Refait le choix du modèle et de λ (`nil` : automatique) sur toutes les mesures, réapprend,
@@ -245,10 +294,11 @@ struct CalibrationModel: Codable, Sendable, Equatable {
         kind.predict(features, with: regression)
     }
 
-    /// Point regardé, décalage de recentrage compris.
+    /// Point regardé, correction du décalage comprise (locale si des clics ont été appris).
     func predict(_ features: GazeFeatures) -> CGPoint {
         let p = predictUncorrected(features)
-        return CGPoint(x: p.x + offset.x, y: p.y + offset.y)
+        let c = correction(at: p)
+        return CGPoint(x: p.x + c.x, y: p.y + c.y)
     }
 
     /// Pour chaque point : médiane des prédictions, puis distance à la cible.

@@ -15,6 +15,10 @@ struct TargetQuery: Sendable, Equatable {
     var maxArea: CGFloat
     /// Délai maximal d'un appel d'accessibilité (s).
     var timeout: Float = 0.1
+    /// Numéros de nos fenêtres transparentes (surlignage) à traverser.
+    var ignoredWindowNumbers: Set<Int> = []
+    /// App au premier plan : propriétaire des menus de la barre des menus.
+    var frontmostPID: Int32?
 }
 
 struct TargetQueryResult: Sendable {
@@ -38,11 +42,10 @@ final class AXTargetFinder: @unchecked Sendable {
     private let busy = OSAllocatedUnfairLock(initialState: false)
 
     // Sur `queue` uniquement.
-    private let systemWide = AXUIElementCreateSystemWide()
     private let ownPID = getpid()
     private var cache: [String: (time: Double, candidate: TargetCandidate?)] = [:]
     private var enabledPIDs: Set<pid_t> = []
-    private var windows: [(pid: pid_t, bounds: CGRect)] = []
+    private var windows: [(pid: pid_t, number: Int, layer: Int, bounds: CGRect)] = []
     private var windowsTime: Double = -1
 
     static let cacheLifetime = 0.3
@@ -80,7 +83,9 @@ final class AXTargetFinder: @unchecked Sendable {
 
     private func run(_ query: TargetQuery) -> TargetQueryResult {
         let start = ProcessInfo.processInfo.systemUptime
-        AXUIElementSetMessagingTimeout(systemWide, query.timeout)
+        guard query.point.x.isFinite, query.point.y.isFinite, query.radius.isFinite else {
+            return TargetQueryResult(query: query, candidates: [], duration: 0)
+        }
         var found: [String: TargetCandidate] = [:]
         for p in TargetGeometry.samplePoints(around: query.point, radius: query.radius, gridSize: query.gridSize) {
             let now = ProcessInfo.processInfo.systemUptime
@@ -105,26 +110,24 @@ final class AXTargetFinder: @unchecked Sendable {
         cache = cache.filter { now - $0.value.time < Self.cacheLifetime }
     }
 
+    /// Élément sous le point, demandé **à l'app propriétaire de la fenêtre** sous ce point.
+    ///
+    /// On n'utilise pas l'élément « système » : quand le point tombe sur une fenêtre de notre app
+    /// (icône de la barre des menus, débogage…), macOS ferait répondre notre app sur ce fil secondaire,
+    /// qui toucherait alors l'interface hors du fil principal (plantage `NSMenu … non-main thread`).
     private func hitTest(_ p: CGPoint, query: TargetQuery) -> TargetCandidate? {
+        guard p.x.isFinite, p.y.isFinite,
+              let owner = windowOwner(at: p, ignoring: query.ignoredWindowNumbers, frontmostPID: query.frontmostPID),
+              owner != ownPID else { return nil }
+        let app = AXUIElementCreateApplication(owner)
+        AXUIElementSetMessagingTimeout(app, query.timeout)
+        enableAccessibilityIfNeeded(pid: owner, app: app)
         var element: AXUIElement?
-        var error = AXUIElementCopyElementAtPosition(systemWide, Float(p.x), Float(p.y), &element)
-        // Notre propre fenêtre de surlignage peut être renvoyée : on interroge alors directement
-        // l'app dont la fenêtre est sous le point.
-        if error != .success || element == nil || pid(of: element) == ownPID {
-            guard let owner = windowOwner(at: p) else { return nil }
-            let app = AXUIElementCreateApplication(owner)
-            AXUIElementSetMessagingTimeout(app, query.timeout)
-            enableAccessibilityIfNeeded(pid: owner, app: app)
-            element = nil
-            error = AXUIElementCopyElementAtPosition(app, Float(p.x), Float(p.y), &element)
-        }
+        let error = AXUIElementCopyElementAtPosition(app, Float(p.x), Float(p.y), &element)
         guard error == .success, let element else { return nil }
         let elementPID = pid(of: element)
         guard elementPID != ownPID else { return nil }
-        if elementPID > 0, !enabledPIDs.contains(elementPID) {
-            enableAccessibilityIfNeeded(pid: elementPID, app: AXUIElementCreateApplication(elementPID))
-        }
-        return clickableAncestor(of: element, pid: elementPID, maxArea: query.maxArea)
+        return clickableAncestor(of: element, pid: elementPID > 0 ? elementPID : owner, maxArea: query.maxArea)
     }
 
     private func clickableAncestor(of start: AXUIElement, pid: pid_t, maxArea: CGFloat) -> TargetCandidate? {
@@ -155,8 +158,9 @@ final class AXTargetFinder: @unchecked Sendable {
         }
     }
 
-    /// App propriétaire de la première fenêtre (de l'avant vers l'arrière) sous le point, hors la nôtre.
-    private func windowOwner(at p: CGPoint) -> pid_t? {
+    /// App propriétaire de la première fenêtre (de l'avant vers l'arrière) sous le point, en traversant
+    /// nos fenêtres transparentes. Si c'est une autre fenêtre de notre app, renvoie notre PID (pas de cible).
+    private func windowOwner(at p: CGPoint, ignoring ignored: Set<Int>, frontmostPID: pid_t?) -> pid_t? {
         let now = ProcessInfo.processInfo.systemUptime
         if now - windowsTime > Self.cacheLifetime {
             windowsTime = now
@@ -164,14 +168,24 @@ final class AXTargetFinder: @unchecked Sendable {
                 as? [[String: Any]] ?? []
             windows = info.compactMap { w in
                 guard let pid = w[kCGWindowOwnerPID as String] as? Int32,
+                      let number = w[kCGWindowNumber as String] as? Int,
                       let boundsDict = w[kCGWindowBounds as String] as? NSDictionary,
-                      let bounds = CGRect(dictionaryRepresentation: boundsDict as CFDictionary),
-                      let alpha = w[kCGWindowAlpha as String] as? Double, alpha > 0.01
+                      let bounds = CGRect(dictionaryRepresentation: boundsDict as CFDictionary)
                 else { return nil }
-                return (pid, bounds)
+                let alpha = w[kCGWindowAlpha as String] as? Double ?? 1
+                guard alpha > 0.01 else { return nil }
+                let layer = w[kCGWindowLayer as String] as? Int ?? 0
+                return (pid, number, layer, bounds)
             }
         }
-        return windows.first { $0.pid != ownPID && $0.bounds.contains(p) }?.pid
+        guard let window = windows.first(where: { !ignored.contains($0.number) && $0.bounds.contains(p) }) else {
+            return nil
+        }
+        // La barre des menus (niveau 24) appartient au serveur de fenêtres ; ses menus sont ceux de l'app active.
+        if window.layer == Int(CGWindowLevelForKey(.mainMenuWindow)), let frontmostPID {
+            return frontmostPID
+        }
+        return window.pid
     }
 
     // MARK: - Lecture d'attributs

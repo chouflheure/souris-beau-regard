@@ -64,7 +64,8 @@ final class TrainingTests: XCTestCase {
         func meanError(_ m: CalibrationModel) -> Double {
             groups.map { group -> Double in
                 let e = ModelSelection.medianPrediction(group, kind: m.kind, regression: m.regression)
-                let p = CGPoint(x: e.x + m.offset.x, y: e.y + m.offset.y)
+                let c = m.correction(at: e)
+                let p = CGPoint(x: e.x + c.x, y: e.y + c.y)
                 return Double(hypot(p.x - group[0].target.x, p.y - group[0].target.y))
             }.reduce(0, +) / Double(groups.count)
         }
@@ -74,7 +75,8 @@ final class TrainingTests: XCTestCase {
         model.addTraining(groups)
         XCTAssertEqual(model.implicitSamples?.count, 240)
         XCTAssertEqual(model.implicitEventCount, 30)
-        XCTAssertEqual(model.recentEvents?.count, 5)
+        XCTAssertEqual(model.recentEvents?.count, 30)
+        XCTAssertEqual(model.biasPoints?.count, 30)
         try model.relearn(kind: nil, lambda: nil)
         XCTAssertNotNil(model.autoKind)
         XCTAssertNotNil(model.crossValidationError)

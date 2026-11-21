@@ -44,6 +44,10 @@ struct MenuContent: View {
     var body: some View {
         @Bindable var settings = appState.settings
         Text(appState.gazeStatusText)
+        if appState.settings.learnFromClicks, appState.calibration != nil {
+            Text("Apprentissage : \(appState.clicksAccepted) clic(s) appris cette session"
+                 + (appState.clicksRejected > 0 ? ", \(appState.clicksRejected) ignoré(s)" : ""))
+        }
         Text(appState.isCameraRunning ? "Caméra : active" : "Caméra : arrêtée")
         if let validation = appState.calibration?.validation {
             Text("Calibration : erreur moyenne \(Int(validation.meanError.rounded())) pt")

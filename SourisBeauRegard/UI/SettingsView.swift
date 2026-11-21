@@ -22,7 +22,7 @@ struct SettingsView: View {
                 Stepper("Entraînement : \(settings.trainingTargetCount) cibles",
                         value: $settings.trainingTargetCount, in: 10...120, step: 10)
                 LabeledContent("Écart max. retenu (pt)") {
-                    Slider(value: $settings.learningMaxError, in: 100...800)
+                    Slider(value: $settings.learningMaxError, in: 100...1200)
                     Text(String(format: "%.0f", settings.learningMaxError)).monospacedDigit()
                 }
                 Stepper("Décalage : \(settings.learningEventWindow) dernier(s) clic(s)",

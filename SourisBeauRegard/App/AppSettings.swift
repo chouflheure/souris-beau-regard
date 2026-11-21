@@ -28,7 +28,7 @@ final class AppSettings {
         static let targetStickiness = "targeting.stickiness"
         static let learnFromClicks = "learning.fromClicks"
         static let trainingTargetCount = "learning.trainingTargetCount"
-        static let learningMaxError = "learning.maxError"
+        static let learningMaxError = "learning.v2.maxError"
         static let learningEventWindow = "learning.eventWindow"
         static let snapRadius = "targeting.snapRadius"
         static let targetHysteresis = "targeting.hysteresis"
@@ -239,7 +239,7 @@ final class AppSettings {
             Key.targetStickiness: 40.0,
             Key.learnFromClicks: true,
             Key.trainingTargetCount: 30,
-            Key.learningMaxError: 300.0,
+            Key.learningMaxError: 600.0,
             Key.learningEventWindow: 5,
             Key.snapRadius: 120.0,
             Key.targetHysteresis: 0.15,

@@ -43,6 +43,9 @@ final class OverlayWindowController {
 
     var isVisible: Bool { panel?.isVisible ?? false }
 
+    /// Numéro de la fenêtre de surlignage, que la recherche de cible doit traverser.
+    var windowNumber: Int? { panel.map { $0.windowNumber } }
+
     /// Écran sur lequel le panneau est affiché (cadre Quartz).
     var displayedScreenFrame: CGRect { screenFrameQuartz }
 

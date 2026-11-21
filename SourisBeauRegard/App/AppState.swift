@@ -267,6 +267,7 @@ final class AppState {
         guard var model = calibration else { return }
         model.offset = .zero
         model.recentEvents = []
+        model.biasPoints = []
         calibration = model
         engine.reset()
         recenterMessage = nil
@@ -634,8 +635,10 @@ final class AppState {
         targetSelector.stickiness = CGFloat(settings.targetStickiness)
         guard now - lastTargetQuery >= 1 / settings.targetingRate else { return }
         let screen = calibration.screenFrame
-        let query = TargetQuery(point: gaze.point, radius: CGFloat(settings.snapRadius),
+        var query = TargetQuery(point: gaze.point, radius: CGFloat(settings.snapRadius),
                                 maxArea: screen.width * screen.height * CGFloat(settings.maxTargetFraction))
+        if let number = overlay.windowNumber { query.ignoredWindowNumbers = [number] }
+        query.frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
         let started = targetFinder.query(query, completion: { [weak self] result in
             Task { @MainActor in self?.handleTargets(result) }
         })
